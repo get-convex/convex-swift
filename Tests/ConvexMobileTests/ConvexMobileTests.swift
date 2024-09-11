@@ -27,7 +27,8 @@ final class ConvexMobileTests: XCTestCase {
 
     await fulfillment(of: [expectation], timeout: 10)
 
-    XCTAssertEqual(result, Message(id: "the_id", val: 42))
+    XCTAssertEqual(result!.id, "the_id")
+    XCTAssertEqual(result!.val, 42)
     XCTAssertEqual(error, nil)
   }
 
@@ -82,7 +83,8 @@ class FakeMobileConvexClient: UniFFI.MobileConvexClientProtocol {
   {
     let _ = Task {
       try await Task.sleep(nanoseconds: UInt64(0.05 * 1_000_000_000))
-      subscriber.onUpdate(value: "{\"_id\": \"the_id\", \"val\": 42, \"extra\": null}")
+      subscriber.onUpdate(
+        value: "{\"_id\": \"the_id\", \"val\": {\"$integer\":\"KgAAAAAAAAA=\"}, \"extra\": null}")
     }
     return FakeSubscriptionHandle(client: self)
   }
@@ -105,9 +107,10 @@ class FakeSubscriptionHandle: UniFFI.SubscriptionHandle {
   }
 }
 
-struct Message: Codable, Equatable {
+struct Message: Decodable {
   let id: String
-  let val: Int
+  @ConvexInt
+  var val: Int
 
   enum CodingKeys: String, CodingKey {
     case id = "_id"

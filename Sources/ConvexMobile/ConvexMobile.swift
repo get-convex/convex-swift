@@ -46,3 +46,25 @@ class SubscriptionAdapter<T: Decodable>: QuerySubscriber {
   }
 
 }
+
+@propertyWrapper
+public struct ConvexInt<IntegerType: FixedWidthInteger>: Decodable {
+  public var wrappedValue: IntegerType
+
+  public init(wrappedValue: IntegerType) {
+    self.wrappedValue = wrappedValue
+  }
+
+  public init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: ConvexTypeKey.self)
+    let b64int = try container.decode(String.self, forKey: .integer)
+    self.wrappedValue = Data(base64Encoded: b64int)!.withUnsafeBytes({
+      (rawPtr: UnsafeRawBufferPointer) in
+      return rawPtr.load(as: IntegerType.self)
+    })
+  }
+
+  enum ConvexTypeKey: String, CodingKey {
+    case integer = "$integer"
+  }
+}
