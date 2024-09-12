@@ -64,7 +64,7 @@ final class ConvexMobileTests: XCTestCase {
       name: "foo",
       args: [
         "aString": "bar", "aDouble": 42.0, "anInt": 42, "aNil": nil,
-        "aDict": ["sub1": 1.0, "nested": ["ohmy": true]],
+        "aDict": ["sub1": 1.0, "nested": ["ohmy": true]], "aList": [true, false, true, nil],
       ]
     ).sink(
       receiveCompletion: { completion in
@@ -86,7 +86,8 @@ final class ConvexMobileTests: XCTestCase {
     XCTAssertEqual(fakeFfiClient.subscriptionArgs["anInt"], "{\"$integer\":\"KgAAAAAAAAA=\"}")
     XCTAssertEqual(fakeFfiClient.subscriptionArgs["aNil"], "null")
     XCTAssertEqual(
-      fakeFfiClient.subscriptionArgs["aDict"], "{\"sub1\":1,\"nested\":{\"ohmy\":true}}")
+      fakeFfiClient.subscriptionArgs["aDict"], "{\"nested\":{\"ohmy\":true},\"sub1\":1}")
+    XCTAssertEqual(fakeFfiClient.subscriptionArgs["aList"], "[true,false,true,null]")
 
   }
 
