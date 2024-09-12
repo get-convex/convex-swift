@@ -55,7 +55,14 @@ class SubscriptionAdapter<T: Decodable>: QuerySubscriber {
   }
 
   func onError(message: String, value: String?) {
-
+    let err: ClientError
+    if value != nil {
+      err = ClientError.ConvexError(data: value!)
+    } else {
+      err = ClientError.ServerError(msg: message)
+    }
+    publisher.send(
+      completion: Subscribers.Completion.failure(err))
   }
 
   func onUpdate(value: String) {
