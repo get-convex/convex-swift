@@ -116,3 +116,13 @@ extension Int: ConvexEncodable {}
 extension Double: ConvexEncodable {}
 extension Bool: ConvexEncodable {}
 extension String: ConvexEncodable {}
+extension [String: ConvexEncodable]: ConvexEncodable {
+  public func convexEncode() throws -> String {
+    var kvPairs: [String] = []
+    try self.forEach { (key: String, value: any ConvexEncodable) in
+      let encodedValue = try value.convexEncode()
+      kvPairs.append("\"\(key)\":\(encodedValue)")
+    }
+    return "{\(kvPairs.joined(separator: ","))}"
+  }
+}

@@ -61,7 +61,11 @@ final class ConvexMobileTests: XCTestCase {
     let client = ConvexMobile.ConvexClient(ffiClient: fakeFfiClient)
 
     let cancellationHandle = try await client.subscribe(
-      name: "foo", args: ["aString": "bar", "aDouble": 42.0, "anInt": 42, "aNil": nil]
+      name: "foo",
+      args: [
+        "aString": "bar", "aDouble": 42.0, "anInt": 42, "aNil": nil,
+        "aDict": ["sub1": 1.0, "nested": ["ohmy": true]],
+      ]
     ).sink(
       receiveCompletion: { completion in
         switch completion {
@@ -81,6 +85,8 @@ final class ConvexMobileTests: XCTestCase {
     XCTAssertEqual(fakeFfiClient.subscriptionArgs["aDouble"], "42")
     XCTAssertEqual(fakeFfiClient.subscriptionArgs["anInt"], "{\"$integer\":\"KgAAAAAAAAA=\"}")
     XCTAssertEqual(fakeFfiClient.subscriptionArgs["aNil"], "null")
+    XCTAssertEqual(
+      fakeFfiClient.subscriptionArgs["aDict"], "{\"sub1\":1,\"nested\":{\"ohmy\":true}}")
 
   }
 
