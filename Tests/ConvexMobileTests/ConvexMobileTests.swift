@@ -126,18 +126,32 @@ final class ConvexMobileTests: XCTestCase {
 
     XCTAssertEqual(message.id, "the_id")
     XCTAssertEqual(message.val, 101)
+  }
 
+  func testVoidMutation() async throws {
+    let fakeFfiClient = FakeMobileConvexClient()
+    let client = ConvexMobile.ConvexClient(ffiClient: fakeFfiClient)
+
+    try await client.mutation(name: "nullResult")
+
+    XCTAssertEqual(fakeFfiClient.mutationCalls, ["nullResult"])
   }
 }
 
 class FakeMobileConvexClient: UniFFI.MobileConvexClientProtocol {
   var cancellationCount = 0
   var subscriptionArgs: [String: String] = [:]
+  var mutationCalls: [String] = []
+
   func action(name: String, args: [String: String]) async throws -> String {
     return "foo"
   }
 
   func mutation(name: String, args: [String: String]) async throws -> String {
+    mutationCalls.append(name)
+    if name == "nullResult" {
+      return "null"
+    }
     let receivedConvexInt = args["anInt"]!
     return "{\"_id\": \"the_id\", \"val\": \(receivedConvexInt), \"extra\": null}"
   }

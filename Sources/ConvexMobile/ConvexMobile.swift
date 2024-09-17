@@ -36,6 +36,20 @@ public class ConvexClient {
   public func mutation<T: Decodable>(name: String, args: [String: ConvexEncodable?]? = nil)
     async throws -> T
   {
+    return try await mutationForResult(name: name, args: args)
+  }
+
+  public func mutation(name: String, args: [String: ConvexEncodable?]? = nil)
+    async throws
+  {
+    let _: String? = try await mutationForResult(name: name, args: args)
+  }
+
+  func mutationForResult<T: Decodable>(
+    name: String, args: [String: ConvexEncodable?]? = nil
+  )
+    async throws -> T
+  {
     let rawResult = try await ffiClient.mutation(
       name: name,
       args: args?.mapValues({ v in
