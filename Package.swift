@@ -5,7 +5,7 @@ import PackageDescription
 
 let binaryTarget: Target = .binaryTarget(
   name: "ConvexMobileCoreRS",
-  path: "../rust/target/ios/libconvexmobile-rs.xcframework"
+  path: "libconvexmobile-rs.xcframework"
 )
 
 let package = Package(
