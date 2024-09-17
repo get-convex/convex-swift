@@ -34,6 +34,6 @@ let package = Package(
     .testTarget(
       name: "ConvexMobileTests",
       dependencies: ["ConvexMobile"],
-      path: "ios/Tests")
+      path: "ios/Tests"),
   ]
 )

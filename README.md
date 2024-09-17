@@ -2,9 +2,9 @@
 
 ## Building
 
-Starting from your `convex-mobile` repo clone:
+Starting from your `convex-mobile` repo:
 
 1. `cd rust/`
 2. `./build-ios.sh`
 3. Open Xcode
-4. Open `ios/`
+4. Open `convex-mobile`
