@@ -10,7 +10,7 @@ final class ConvexMobileTests: XCTestCase {
     var result: Message?
     let client = ConvexMobile.ConvexClient(ffiClient: FakeMobileConvexClient())
 
-    let cancellationHandle = try await client.subscribe(name: "foo").sink(
+    let cancellationHandle = try client.subscribe(name: "foo").sink(
       receiveCompletion: { completion in
         switch completion {
         case .finished:
@@ -37,7 +37,7 @@ final class ConvexMobileTests: XCTestCase {
     let fakeFfiClient = FakeMobileConvexClient()
     let client = ConvexMobile.ConvexClient(ffiClient: fakeFfiClient)
 
-    let cancellationHandle = try await client.subscribe(name: "foo").sink(
+    let cancellationHandle = try client.subscribe(name: "foo").sink(
       receiveCompletion: { completion in
         switch completion {
         case .finished:
@@ -60,7 +60,7 @@ final class ConvexMobileTests: XCTestCase {
     let fakeFfiClient = FakeMobileConvexClient()
     let client = ConvexMobile.ConvexClient(ffiClient: fakeFfiClient)
 
-    let cancellationHandle = try await client.subscribe(
+    let cancellationHandle = try client.subscribe(
       name: "foo",
       args: [
         "aString": "bar", "aDouble": 42.0, "anInt": 42, "aNil": nil,
@@ -97,7 +97,7 @@ final class ConvexMobileTests: XCTestCase {
     let ffiClient = FakeMobileConvexClient()
     let client = ConvexMobile.ConvexClient(ffiClient: ffiClient)
 
-    let cancellationHandle = try await client.subscribe(name: "foo").sink(
+    let cancellationHandle = try client.subscribe(name: "foo").sink(
       receiveCompletion: { completion in
         switch completion {
         case .finished:

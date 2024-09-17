@@ -17,18 +17,30 @@ public class ConvexClient {
   }
 
   public func subscribe<T: Decodable>(name: String, args: [String: ConvexEncodable?]? = nil)
-    async throws
+    throws
     -> AnyPublisher<T, ClientError>
   {
     let publisher = PassthroughSubject<T, ClientError>()
     let adapter = SubscriptionAdapter<T>(publisher: publisher)
-    let cancellationHandle = try await ffiClient.subscribe(
-      name: name,
-      args: args?.mapValues({ v in
-        try v?.convexEncode() ?? "null"
-      }) ?? [:], subscriber: adapter)
-    return publisher.handleEvents(receiveCancel: {
-      cancellationHandle.cancel()
+    let cancelPublisher = Future<SubscriptionHandle, ClientError> {
+      promise in
+      Task {
+        do {
+          let cancellationHandle = try await self.ffiClient.subscribe(
+            name: name,
+            args: args?.mapValues({ v in
+              try v?.convexEncode() ?? "null"
+            }) ?? [:], subscriber: adapter)
+          promise(.success(cancellationHandle))
+        } catch {
+          promise(.failure(ClientError.InternalError(msg: error.localizedDescription)))
+        }
+      }
+    }
+    return cancelPublisher.flatMap({ subscriptionHandle in
+      publisher.handleEvents(receiveCancel: {
+        subscriptionHandle.cancel()
+      })
     })
     .eraseToAnyPublisher()
   }
