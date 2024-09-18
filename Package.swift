@@ -5,7 +5,7 @@ import PackageDescription
 
 let binaryTarget: Target = .binaryTarget(
   name: "ConvexMobileCoreRS",
-  path: "ios/libconvexmobile-rs.xcframework"
+  path: "libconvexmobile-rs.xcframework"
 )
 
 let package = Package(
@@ -25,15 +25,13 @@ let package = Package(
     // Targets can depend on other targets in this package and products from dependencies.
     .target(
       name: "ConvexMobile",
-      dependencies: [.target(name: "UniFFI")],
-      path: "ios/Sources/ConvexMobile"),
+      dependencies: [.target(name: "UniFFI")]),
     .target(
       name: "UniFFI",
       dependencies: [.target(name: "ConvexMobileCoreRS")],
-      path: "ios/Sources/UniFFI"),
+      path: "Sources/UniFFI"),
     .testTarget(
       name: "ConvexMobileTests",
-      dependencies: ["ConvexMobile"],
-      path: "ios/Tests"),
+      dependencies: ["ConvexMobile"]),
   ]
 )
