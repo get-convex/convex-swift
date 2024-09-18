@@ -71,6 +71,60 @@ public class ConvexClient {
   }
 }
 
+public enum AuthState<T> {
+  case authenticated(T)
+  case unauthenticated
+  case loading
+}
+
+public protocol AuthProvider<T> {
+  associatedtype T
+
+  func login() async throws -> T
+  func logout() async throws
+  func extractIdToken(authResult: T) -> String
+}
+
+public class ConvexClientWithAuth<T>: ConvexClient {
+  private let authPublisher = CurrentValueSubject<AuthState<T>, Never>(AuthState.unauthenticated)
+  public let authState: AnyPublisher<AuthState<T>, Never>
+  private let authProvider: any AuthProvider<T>
+
+  public init(deploymentUrl: String, authProvider: any AuthProvider<T>) {
+    self.authProvider = authProvider
+    self.authState = authPublisher.eraseToAnyPublisher()
+    super.init(deploymentUrl: deploymentUrl)
+  }
+
+  init(ffiClient: MobileConvexClientProtocol, authProvider: any AuthProvider<T>) {
+    self.authProvider = authProvider
+    self.authState = authPublisher.eraseToAnyPublisher()
+    super.init(ffiClient: ffiClient)
+  }
+
+  public func login() async {
+    authPublisher.send(AuthState.loading)
+    do {
+      let result = try await authProvider.login()
+      try await ffiClient.setAuth(token: authProvider.extractIdToken(authResult: result))
+      authPublisher.send(AuthState.authenticated(result))
+    } catch {
+      dump(error)
+      authPublisher.send(AuthState.unauthenticated)
+    }
+  }
+
+  public func logout() async {
+    do {
+      try await authProvider.logout()
+      try await ffiClient.setAuth(token: nil)
+      authPublisher.send(AuthState.unauthenticated)
+    } catch {
+      dump(error)
+    }
+  }
+}
+
 class SubscriptionAdapter<T: Decodable>: QuerySubscriber {
   typealias Publisher = PassthroughSubject<T, ClientError>
 

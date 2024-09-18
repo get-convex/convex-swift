@@ -136,12 +136,58 @@ final class ConvexMobileTests: XCTestCase {
 
     XCTAssertEqual(fakeFfiClient.mutationCalls, ["nullResult"])
   }
+
+  func testLoginSetsAuthOnFfiClient() async throws {
+    let fakeFfiClient = FakeMobileConvexClient()
+    let client = ConvexMobile.ConvexClientWithAuth(
+      ffiClient: fakeFfiClient, authProvider: FakeAuthProvider())
+
+    await client.login()
+
+    XCTAssertEqual(fakeFfiClient.auth, "extracted: credentials, yo")
+  }
+
+  func testLogoutClearsAuthOnFfiClient() async throws {
+    let fakeFfiClient = FakeMobileConvexClient(initialAuth: "some auth")
+    let client = ConvexMobile.ConvexClientWithAuth(
+      ffiClient: fakeFfiClient, authProvider: FakeAuthProvider())
+
+    await client.logout()
+
+    XCTAssertEqual(fakeFfiClient.auth, nil)
+  }
+
+  func testLoginUpdatesAuthState() async throws {
+    let expectation = self.expectation(description: "authState")
+    var credentials: String?
+    let client = ConvexMobile.ConvexClientWithAuth(
+      ffiClient: FakeMobileConvexClient(), authProvider: FakeAuthProvider())
+
+    let cancellationHandle = client.authState.sink(
+      receiveValue: { (value: AuthState<String>) in
+        if case .authenticated(let creds) = value {
+          credentials = creds
+          expectation.fulfill()
+        }
+      })
+
+    await client.login()
+
+    await fulfillment(of: [expectation], timeout: 10)
+
+    XCTAssertEqual(credentials, "credentials, yo")
+  }
 }
 
 class FakeMobileConvexClient: UniFFI.MobileConvexClientProtocol {
   var cancellationCount = 0
   var subscriptionArgs: [String: String] = [:]
   var mutationCalls: [String] = []
+  var auth: String? = nil
+
+  init(initialAuth: String? = nil) {
+    self.auth = initialAuth
+  }
 
   func action(name: String, args: [String: String]) async throws -> String {
     return "foo"
@@ -161,7 +207,7 @@ class FakeMobileConvexClient: UniFFI.MobileConvexClientProtocol {
   }
 
   func setAuth(token: String?) async throws {
-
+    auth = token
   }
 
   func subscribe(name: String, args: [String: String], subscriber: any UniFFI.QuerySubscriber)
@@ -176,6 +222,20 @@ class FakeMobileConvexClient: UniFFI.MobileConvexClientProtocol {
     return FakeSubscriptionHandle(client: self)
   }
 
+}
+
+class FakeAuthProvider: AuthProvider {
+  func login() async throws -> String {
+    return "credentials, yo"
+  }
+
+  func logout() async throws {
+
+  }
+
+  func extractIdToken(authResult: String) -> String {
+    return "extracted: \(authResult)"
+  }
 }
 
 class FakeSubscriptionHandle: UniFFI.SubscriptionHandle {
