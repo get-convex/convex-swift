@@ -144,7 +144,17 @@ final class ConvexMobileTests: XCTestCase {
 
     await client.login()
 
-    XCTAssertEqual(fakeFfiClient.auth, "extracted: credentials, yo")
+    XCTAssertEqual(fakeFfiClient.auth, "extracted: \(FakeAuthProvider.CREDENTIALS)")
+  }
+
+  func testLoginFromCacheSetsAuthOnFfiClient() async throws {
+    let fakeFfiClient = FakeMobileConvexClient()
+    let client = ConvexMobile.ConvexClientWithAuth(
+      ffiClient: fakeFfiClient, authProvider: FakeAuthProvider())
+
+    await client.loginFromCache()
+
+    XCTAssertEqual(fakeFfiClient.auth, "extracted: \(FakeAuthProvider.CREDENTIALS)")
   }
 
   func testLogoutClearsAuthOnFfiClient() async throws {
@@ -175,7 +185,7 @@ final class ConvexMobileTests: XCTestCase {
 
     await fulfillment(of: [expectation], timeout: 10)
 
-    XCTAssertEqual(credentials, "credentials, yo")
+    XCTAssertEqual(credentials, FakeAuthProvider.CREDENTIALS)
   }
 }
 
@@ -225,8 +235,14 @@ class FakeMobileConvexClient: UniFFI.MobileConvexClientProtocol {
 }
 
 class FakeAuthProvider: AuthProvider {
+  static let CREDENTIALS = "credentials, yo"
+
+  func loginFromCache() async throws -> String {
+    return FakeAuthProvider.CREDENTIALS
+  }
+
   func login() async throws -> String {
-    return "credentials, yo"
+    return FakeAuthProvider.CREDENTIALS
   }
 
   func logout() async throws {

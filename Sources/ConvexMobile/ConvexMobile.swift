@@ -82,6 +82,7 @@ public protocol AuthProvider<T> {
 
   func login() async throws -> T
   func logout() async throws
+  func loginFromCache() async throws -> T
   func extractIdToken(authResult: T) -> String
 }
 
@@ -103,15 +104,11 @@ public class ConvexClientWithAuth<T>: ConvexClient {
   }
 
   public func login() async {
-    authPublisher.send(AuthState.loading)
-    do {
-      let result = try await authProvider.login()
-      try await ffiClient.setAuth(token: authProvider.extractIdToken(authResult: result))
-      authPublisher.send(AuthState.authenticated(result))
-    } catch {
-      dump(error)
-      authPublisher.send(AuthState.unauthenticated)
-    }
+    await login(strategy: authProvider.login)
+  }
+
+  public func loginFromCache() async {
+    await login(strategy: authProvider.loginFromCache)
   }
 
   public func logout() async {
@@ -123,6 +120,20 @@ public class ConvexClientWithAuth<T>: ConvexClient {
       dump(error)
     }
   }
+
+  private func login(strategy: LoginStrategy) async {
+    authPublisher.send(AuthState.loading)
+    do {
+      let result = try await strategy()
+      try await ffiClient.setAuth(token: authProvider.extractIdToken(authResult: result))
+      authPublisher.send(AuthState.authenticated(result))
+    } catch {
+      dump(error)
+      authPublisher.send(AuthState.unauthenticated)
+    }
+  }
+
+  private typealias LoginStrategy = () async throws -> T
 }
 
 class SubscriptionAdapter<T: Decodable>: QuerySubscriber {
