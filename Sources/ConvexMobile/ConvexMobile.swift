@@ -76,7 +76,7 @@ public class ConvexClient {
   public func mutation<T: Decodable>(name: String, args: [String: ConvexEncodable?]? = nil)
     async throws -> T
   {
-    return try await mutationForResult(name: name, args: args)
+    return try await callForResult(name: name, args: args, remoteCall: ffiClient.mutation)
   }
 
   /// Executes the mutation with the given `name` and `args` without returning a result.
@@ -89,21 +89,53 @@ public class ConvexClient {
   public func mutation(name: String, args: [String: ConvexEncodable?]? = nil)
     async throws
   {
-    let _: String? = try await mutationForResult(name: name, args: args)
+    let _: String? = try await callForResult(name: name, args: args, remoteCall: ffiClient.mutation)
   }
 
-  func mutationForResult<T: Decodable>(
-    name: String, args: [String: ConvexEncodable?]? = nil
+  /// Executes the action with the given `name` and `args` and returns the result.
+  ///
+  /// For actions that don't return a value, prefer calling the version of this method that doesn't return a value.
+  ///
+  /// - Parameters:
+  ///   - name: A value in "module:mutation_name"  format that will be used when calling the backend
+  ///   - args: An optional ``Dictionary`` of arguments to be sent to the backend mutation function
+  public func action<T: Decodable>(name: String, args: [String: ConvexEncodable?]? = nil)
+    async throws -> T
+  {
+    return try await callForResult(name: name, args: args, remoteCall: ffiClient.action)
+  }
+
+  /// Executes the action with the given `name` and `args` without returning a result.
+  ///
+  /// For actions that return a value, prefer calling the version of this method that returns a ``Decodable`` value.
+  ///
+  /// - Parameters:
+  ///   - name: A value in "module:mutation_name"  format that will be used when calling the backend
+  ///   - args: An optional ``Dictionary`` of arguments to be sent to the backend mutation function
+  public func action(name: String, args: [String: ConvexEncodable?]? = nil)
+    async throws
+  {
+    let _: String? = try await callForResult(name: name, args: args, remoteCall: ffiClient.action)
+  }
+
+  /// Common handler for `action` and `mutation` calls.
+  ///
+  /// To the client code, both work in a very similar fashion where remote code is invoked and a result is returned. This handler takes care of
+  /// encoding the arguments and decoding the result, whether the call is an `action` or `mutation`.
+  func callForResult<T: Decodable>(
+    name: String, args: [String: ConvexEncodable?]? = nil, remoteCall: RemoteCall
   )
     async throws -> T
   {
-    let rawResult = try await ffiClient.mutation(
-      name: name,
-      args: args?.mapValues({ v in
+    let rawResult = try await remoteCall(
+      name,
+      args?.mapValues({ v in
         try v?.convexEncode() ?? "null"
       }) ?? [:])
     return try! JSONDecoder().decode(T.self, from: Data(rawResult.utf8))
   }
+
+  typealias RemoteCall = (String, [String: String]) async throws -> String
 }
 
 /// Authentication states that can be experienced when using an ``AuthProvider`` with
