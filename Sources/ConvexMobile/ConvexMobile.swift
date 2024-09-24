@@ -38,7 +38,6 @@ public class ConvexClient {
   ///   - name: A value in "module:query_name"  format that will be used when calling the backend
   ///   - args: An optional ``Dictionary`` of arguments to be sent to the backend query function
   public func subscribe<T: Decodable>(name: String, args: [String: ConvexEncodable?]? = nil)
-    throws
     -> AnyPublisher<T, ClientError>
   {
     let publisher = PassthroughSubject<T, ClientError>()
