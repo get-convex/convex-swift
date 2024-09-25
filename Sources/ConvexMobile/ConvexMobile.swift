@@ -318,8 +318,8 @@ public struct OptionalConvexInt<IntegerType: FixedWidthInteger>: Decodable {
 }
 
 // This allows for decoding OptionalConvexInt when the associated key isn't present in the payload.
-extension KeyedDecodingContainer {
-  func decode<T>(_ type: OptionalConvexInt<T>.Type, forKey key: Self.Key) throws
+public extension KeyedDecodingContainer {
+  public func decode<T>(_ type: OptionalConvexInt<T>.Type, forKey key: Self.Key) throws
     -> OptionalConvexInt<T>
   {
     return try decodeIfPresent(type, forKey: key) ?? OptionalConvexInt(wrappedValue: nil)
