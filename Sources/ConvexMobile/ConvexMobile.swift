@@ -294,6 +294,38 @@ public struct ConvexInt<IntegerType: FixedWidthInteger>: Decodable {
   }
 }
 
+@propertyWrapper
+public struct OptionalConvexInt<IntegerType: FixedWidthInteger>: Decodable {
+  public var wrappedValue: IntegerType?
+
+  public init(wrappedValue: IntegerType?) {
+    self.wrappedValue = wrappedValue
+  }
+
+  public init(from decoder: Decoder) throws {
+    if let container = try? decoder.container(keyedBy: ConvexTypeKey.self) {
+      let b64int = try container.decode(String.self, forKey: .integer)
+      self.wrappedValue = Data(base64Encoded: b64int)!.withUnsafeBytes({
+        (rawPtr: UnsafeRawBufferPointer) in
+        return rawPtr.load(as: IntegerType.self)
+      })
+    }
+  }
+
+  enum ConvexTypeKey: String, CodingKey {
+    case integer = "$integer"
+  }
+}
+
+// This allows for decoding OptionalConvexInt when the associated key isn't present in the payload.
+extension KeyedDecodingContainer {
+  func decode<T>(_ type: OptionalConvexInt<T>.Type, forKey key: Self.Key) throws
+    -> OptionalConvexInt<T>
+  {
+    return try decodeIfPresent(type, forKey: key) ?? OptionalConvexInt(wrappedValue: nil)
+  }
+}
+
 struct ConvexBase64Int: Decodable {
   let integer: String
 

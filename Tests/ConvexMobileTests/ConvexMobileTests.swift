@@ -32,6 +32,90 @@ final class ConvexMobileTests: XCTestCase {
     XCTAssertEqual(error, nil)
   }
 
+  func testSubscribeOptionalResultWithPresentVal() async throws {
+    let expectation = self.expectation(description: "subscribe")
+    var error: ClientError?
+    var result: MessageWithOptionalVal?
+    let client = ConvexMobile.ConvexClient(ffiClient: FakeMobileConvexClient())
+
+    let cancellationHandle = try client.subscribe(name: "foo").sink(
+      receiveCompletion: { completion in
+        switch completion {
+        case .finished:
+          break
+        case .failure(let clientError):
+          error = clientError
+          break
+        }
+      },
+      receiveValue: { (value: MessageWithOptionalVal?) in
+        result = value
+        expectation.fulfill()
+      })
+
+    await fulfillment(of: [expectation], timeout: 10)
+
+    XCTAssertEqual(result!.id, "the_id")
+    XCTAssertEqual(result!.val, 42)
+    XCTAssertEqual(error, nil)
+  }
+
+  func testSubscribeOptionalResultWithNullVal() async throws {
+    let expectation = self.expectation(description: "subscribe")
+    var error: ClientError?
+    var result: MessageWithOptionalVal?
+    let client = ConvexMobile.ConvexClient(ffiClient: FakeMobileConvexClient())
+
+    let cancellationHandle = try client.subscribe(name: "nullVal").sink(
+      receiveCompletion: { completion in
+        switch completion {
+        case .finished:
+          break
+        case .failure(let clientError):
+          error = clientError
+          break
+        }
+      },
+      receiveValue: { (value: MessageWithOptionalVal?) in
+        result = value
+        expectation.fulfill()
+      })
+
+    await fulfillment(of: [expectation], timeout: 10)
+
+    XCTAssertEqual(result!.id, "the_id")
+    XCTAssertEqual(result!.val, nil)
+    XCTAssertEqual(error, nil)
+  }
+
+  func testSubscribeOptionalResultWithMissingVal() async throws {
+    let expectation = self.expectation(description: "subscribe")
+    var error: ClientError?
+    var result: MessageWithOptionalVal?
+    let client = ConvexMobile.ConvexClient(ffiClient: FakeMobileConvexClient())
+
+    let cancellationHandle = try client.subscribe(name: "missingVal").sink(
+      receiveCompletion: { completion in
+        switch completion {
+        case .finished:
+          break
+        case .failure(let clientError):
+          error = clientError
+          break
+        }
+      },
+      receiveValue: { (value: MessageWithOptionalVal?) in
+        result = value
+        expectation.fulfill()
+      })
+
+    await fulfillment(of: [expectation], timeout: 10)
+
+    XCTAssertEqual(result!.id, "the_id")
+    XCTAssertEqual(result!.val, nil)
+    XCTAssertEqual(error, nil)
+  }
+
   func testMissingSubscribeArgs() async throws {
     let expectation = self.expectation(description: "subscribe")
     let fakeFfiClient = FakeMobileConvexClient()
@@ -251,8 +335,17 @@ class FakeMobileConvexClient: UniFFI.MobileConvexClientProtocol {
     subscriptionArgs = args
     let _ = Task {
       try await Task.sleep(nanoseconds: UInt64(0.05 * 1_000_000_000))
-      subscriber.onUpdate(
-        value: "{\"_id\": \"the_id\", \"val\": {\"$integer\":\"KgAAAAAAAAA=\"}, \"extra\": null}")
+      if name == "missingVal" {
+        subscriber.onUpdate(
+          value: "{\"_id\": \"the_id\", \"extra\": null}")
+      } else if name == "nullVal" {
+        subscriber.onUpdate(
+          value: "{\"_id\": \"the_id\", \"val\": null, \"extra\": null}")
+      } else {
+        subscriber.onUpdate(
+          value: "{\"_id\": \"the_id\", \"val\": {\"$integer\":\"KgAAAAAAAAA=\"}, \"extra\": null}")
+      }
+
     }
     return FakeSubscriptionHandle(client: self)
   }
@@ -292,6 +385,17 @@ class FakeSubscriptionHandle: UniFFI.SubscriptionHandle {
 
   override func cancel() {
     self.client.cancellationCount += 1
+  }
+}
+
+struct MessageWithOptionalVal: Decodable {
+  let id: String
+  @OptionalConvexInt
+  var val: Int? = nil
+
+  enum CodingKeys: String, CodingKey {
+    case id = "_id"
+    case val
   }
 }
 
