@@ -429,7 +429,7 @@ class FakeSubscriptionHandle: UniFFI.SubscriptionHandle {
   }
 }
 
-struct MessageWithOptionalVal: Decodable {
+private struct MessageWithOptionalVal: Decodable {
   let id: String
   @OptionalConvexInt
   var val: Int? = nil
@@ -440,7 +440,7 @@ struct MessageWithOptionalVal: Decodable {
   }
 }
 
-struct Message: Decodable, Equatable {
+private struct Message: Decodable, Equatable {
   let id: String
   @ConvexInt
   var val: Int
