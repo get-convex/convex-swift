@@ -10,7 +10,7 @@ final class ConvexMobileTests: XCTestCase {
     var result: Message?
     let client = ConvexMobile.ConvexClient(ffiClient: FakeMobileConvexClient())
 
-    let cancellationHandle = try client.subscribe(name: "foo").sink(
+    let cancellationHandle = client.subscribe(name: "foo").sink(
       receiveCompletion: { completion in
         switch completion {
         case .finished:
@@ -32,13 +32,46 @@ final class ConvexMobileTests: XCTestCase {
     XCTAssertEqual(error, nil)
   }
 
+  func testSubscribeCanTrimDupeVals() async throws {
+    let receivedSomething = self.expectation(description: "subscribe")
+    let donePublishing = self.expectation(description: "done_publishing")
+    var error: ClientError?
+    var result: [Message] = []
+    let client = ConvexMobile.ConvexClient(
+      ffiClient: FakeMobileConvexClient(resultPublished: donePublishing))
+
+    let cancellationHandle = client.subscribe(name: "dupeVals")
+      .removeDuplicates()
+      .sink(
+        receiveCompletion: { completion in
+          switch completion {
+          case .finished:
+            break
+          case .failure(let clientError):
+            error = clientError
+            break
+          }
+        },
+        receiveValue: { (value: Message) in
+          result.append(value)
+          if result.count == 1 {
+            receivedSomething.fulfill()
+          }
+        })
+
+    await fulfillment(of: [donePublishing, receivedSomething], timeout: 10)
+
+    XCTAssertEqual(result.count, 1)
+    XCTAssertEqual(error, nil)
+  }
+
   func testSubscribeOptionalResultWithPresentVal() async throws {
     let expectation = self.expectation(description: "subscribe")
     var error: ClientError?
     var result: MessageWithOptionalVal?
     let client = ConvexMobile.ConvexClient(ffiClient: FakeMobileConvexClient())
 
-    let cancellationHandle = try client.subscribe(name: "foo").sink(
+    let cancellationHandle = client.subscribe(name: "foo").sink(
       receiveCompletion: { completion in
         switch completion {
         case .finished:
@@ -66,7 +99,7 @@ final class ConvexMobileTests: XCTestCase {
     var result: MessageWithOptionalVal?
     let client = ConvexMobile.ConvexClient(ffiClient: FakeMobileConvexClient())
 
-    let cancellationHandle = try client.subscribe(name: "nullVal").sink(
+    let cancellationHandle = client.subscribe(name: "nullVal").sink(
       receiveCompletion: { completion in
         switch completion {
         case .finished:
@@ -94,7 +127,7 @@ final class ConvexMobileTests: XCTestCase {
     var result: MessageWithOptionalVal?
     let client = ConvexMobile.ConvexClient(ffiClient: FakeMobileConvexClient())
 
-    let cancellationHandle = try client.subscribe(name: "missingVal").sink(
+    let cancellationHandle = client.subscribe(name: "missingVal").sink(
       receiveCompletion: { completion in
         switch completion {
         case .finished:
@@ -126,7 +159,7 @@ final class ConvexMobileTests: XCTestCase {
         switch completion {
         case .finished:
           break
-        case .failure(let clientError):
+        case .failure:
           break
         }
       },
@@ -144,7 +177,7 @@ final class ConvexMobileTests: XCTestCase {
     let fakeFfiClient = FakeMobileConvexClient()
     let client = ConvexMobile.ConvexClient(ffiClient: fakeFfiClient)
 
-    let cancellationHandle = try client.subscribe(
+    let cancellationHandle = client.subscribe(
       name: "foo",
       args: [
         "aString": "bar", "aDouble": 42.0, "anInt": 42, "aNil": nil,
@@ -155,7 +188,7 @@ final class ConvexMobileTests: XCTestCase {
         switch completion {
         case .finished:
           break
-        case .failure(let clientError):
+        case .failure:
           break
         }
       },
@@ -181,7 +214,7 @@ final class ConvexMobileTests: XCTestCase {
     let ffiClient = FakeMobileConvexClient()
     let client = ConvexMobile.ConvexClient(ffiClient: ffiClient)
 
-    let cancellationHandle = try client.subscribe(name: "foo").sink(
+    let cancellationHandle = client.subscribe(name: "foo").sink(
       receiveCompletion: { completion in
         switch completion {
         case .finished:
@@ -298,9 +331,11 @@ class FakeMobileConvexClient: UniFFI.MobileConvexClientProtocol {
   var mutationCalls: [String] = []
   var actionCalls: [String] = []
   var auth: String? = nil
+  var resultPublished: XCTestExpectation?
 
-  init(initialAuth: String? = nil) {
+  init(initialAuth: String? = nil, resultPublished: XCTestExpectation? = nil) {
     self.auth = initialAuth
+    self.resultPublished = resultPublished
   }
 
   func action(name: String, args: [String: String]) async throws -> String {
@@ -344,7 +379,13 @@ class FakeMobileConvexClient: UniFFI.MobileConvexClientProtocol {
       } else {
         subscriber.onUpdate(
           value: "{\"_id\": \"the_id\", \"val\": {\"$integer\":\"KgAAAAAAAAA=\"}, \"extra\": null}")
+        if name == "dupeVals" {
+          subscriber.onUpdate(
+            value:
+              "{\"_id\": \"the_id\", \"val\": {\"$integer\":\"KgAAAAAAAAA=\"}, \"extra\": null}")
+        }
       }
+      resultPublished?.fulfill()
 
     }
     return FakeSubscriptionHandle(client: self)
@@ -399,7 +440,7 @@ struct MessageWithOptionalVal: Decodable {
   }
 }
 
-struct Message: Decodable {
+struct Message: Decodable, Equatable {
   let id: String
   @ConvexInt
   var val: Int

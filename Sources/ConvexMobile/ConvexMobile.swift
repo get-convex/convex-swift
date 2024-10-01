@@ -273,7 +273,7 @@ class SubscriptionAdapter<T: Decodable>: QuerySubscriber {
 }
 
 @propertyWrapper
-public struct ConvexInt<IntegerType: FixedWidthInteger>: Decodable {
+public struct ConvexInt<IntegerType: FixedWidthInteger>: Decodable, Equatable {
   public var wrappedValue: IntegerType
 
   public init(wrappedValue: IntegerType) {
@@ -295,7 +295,7 @@ public struct ConvexInt<IntegerType: FixedWidthInteger>: Decodable {
 }
 
 @propertyWrapper
-public struct OptionalConvexInt<IntegerType: FixedWidthInteger>: Decodable {
+public struct OptionalConvexInt<IntegerType: FixedWidthInteger>: Decodable, Equatable {
   public var wrappedValue: IntegerType?
 
   public init(wrappedValue: IntegerType?) {
@@ -318,7 +318,7 @@ public struct OptionalConvexInt<IntegerType: FixedWidthInteger>: Decodable {
 }
 
 // This allows for decoding OptionalConvexInt when the associated key isn't present in the payload.
-public extension KeyedDecodingContainer {
+extension KeyedDecodingContainer {
   public func decode<T>(_ type: OptionalConvexInt<T>.Type, forKey key: Self.Key) throws
     -> OptionalConvexInt<T>
   {
