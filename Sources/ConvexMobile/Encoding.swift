@@ -13,9 +13,25 @@ public protocol ConvexEncodable {
 
 extension ConvexEncodable where Self: FixedWidthInteger, Self: Encodable {
   public func convexEncode() throws -> String {
-    let data = withUnsafeBytes(of: self) { Data($0) }
+    let data = withUnsafeBytes(of: Int64(self)) { Data($0) }
     return String(
       decoding: try JSONEncoder().encode(["$integer": data.base64EncodedString()]), as: UTF8.self)
+  }
+}
+
+extension ConvexEncodable where Self: BinaryFloatingPoint, Self: Encodable {
+  public func convexEncode() throws -> String {
+    var requiresSpecialEncoding = false
+    let asDouble = Double(self)
+    if asDouble.isNaN || asDouble == Double.infinity || asDouble == -Double.infinity {
+      requiresSpecialEncoding = true
+    }
+    if requiresSpecialEncoding {
+      let data = withUnsafeBytes(of: Float64(self)) { Data($0) }
+      return String(
+        decoding: try JSONEncoder().encode(["$float": data.base64EncodedString()]), as: UTF8.self)
+    }
+    return String(decoding: try JSONEncoder().encode(self), as: UTF8.self)
   }
 }
 
@@ -26,6 +42,9 @@ extension ConvexEncodable where Self: Encodable {
 }
 
 extension Int: ConvexEncodable {}
+extension Int32: ConvexEncodable {}
+extension Int64: ConvexEncodable {}
+extension Float: ConvexEncodable {}
 extension Double: ConvexEncodable {}
 extension Bool: ConvexEncodable {}
 extension String: ConvexEncodable {}
