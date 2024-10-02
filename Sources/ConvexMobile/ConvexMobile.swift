@@ -54,6 +54,21 @@ public class ConvexClient {
   /// - Parameters:
   ///   - name: A value in "module:query_name"  format that will be used when calling the backend
   ///   - args: An optional ``Dictionary`` of arguments to be sent to the backend query function
+  public func subscribe<T: Decodable>(name: String, args: [String: ConvexEncodable?]? = nil)
+    -> AnyPublisher<T, ClientError>
+  {
+    subscribe(name, args: args)
+  }
+
+  /// Subscribes to the query with the given `name` and converts data from the subscription into an
+  /// ``AnyPublisher<T, ClientError>``.
+  ///
+  /// The upstream Convex subscription will be canceled if whatever is subscribed to returned publisher
+  /// stops listening.
+  ///
+  /// - Parameters:
+  ///   - name: A value in "module:query_name"  format that will be used when calling the backend
+  ///   - args: An optional ``Dictionary`` of arguments to be sent to the backend query function
   public func subscribe<T: Decodable>(_ name: String, args: [String: ConvexEncodable?]? = nil)
     -> AnyPublisher<T, ClientError>
   {
