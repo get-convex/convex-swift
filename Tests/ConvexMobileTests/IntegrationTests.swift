@@ -83,6 +83,15 @@ private let deploymentUrl = "https://curious-lynx-309.convex.cloud"
     }
 
     Task {
+      // Sort of a hack - first wait for the initial value from the receiveTask. Otherwise
+      // this task can sometimes finish first and the receive task never gets all of the
+      // results that it expects (misses the original empty list).
+      while true {
+        if receivedMessages.count == 1 {
+          break
+        }
+        await Task.yield()
+      }
       for i in 1...3 {
         try await clientB.mutation(
           name: "messages:send", args: ["author": "Client B", "body": "Message \(i)"])
