@@ -157,12 +157,20 @@ private struct Message: Decodable, Equatable {
 }
 
 private struct NumericValues: Decodable, Equatable {
+  init(anInt64: Int64, aFloat64: Float64, jsNumber: Double, anInt32: Int32, aFloat32: Float32) {
+    self.anInt64 = anInt64
+    self.aFloat64 = aFloat64
+    self.jsNumber = jsNumber
+    self.anInt32 = anInt32
+    self.aFloat32 = aFloat32
+  }
+
   @ConvexInt
   var anInt64: Int64
   @ConvexFloat
   var aFloat64: Float64
   @ConvexFloat
-  var jsNumber: Double
+  private var jsNumber: Double
   @ConvexInt
   var anInt32: Int32
   @ConvexFloat
@@ -187,9 +195,7 @@ private struct NumericValues: Decodable, Equatable {
   }
 
   // Expose the JavaScript number value as an Int.
-  var aPlainInt: Int {
-    Int(jsNumber)
-  }
+  var aPlainInt: Int { Int(jsNumber) }
 }
 
 private struct SpecialFloats: Decodable, Equatable {
