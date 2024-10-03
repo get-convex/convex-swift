@@ -40,38 +40,8 @@ public class ConvexClient {
   ///   - output: The type of data that will be returned in the Publisher, as a convenience to callers
   ///             where the type can't be easily inferred.
   public func subscribe<T: Decodable>(
-    _ name: String, args: [String: ConvexEncodable?]? = nil, output: T.Type
+    to name: String, with args: [String: ConvexEncodable?]? = nil, yielding output: T.Type? = nil
   ) -> AnyPublisher<T, ClientError> {
-    subscribe(name, args: args)
-  }
-
-  /// Subscribes to the query with the given `name` and converts data from the subscription into an
-  /// ``AnyPublisher<T, ClientError>``.
-  ///
-  /// The upstream Convex subscription will be canceled if whatever is subscribed to returned publisher
-  /// stops listening.
-  ///
-  /// - Parameters:
-  ///   - name: A value in "module:query_name"  format that will be used when calling the backend
-  ///   - args: An optional ``Dictionary`` of arguments to be sent to the backend query function
-  public func subscribe<T: Decodable>(name: String, args: [String: ConvexEncodable?]? = nil)
-    -> AnyPublisher<T, ClientError>
-  {
-    subscribe(name, args: args)
-  }
-
-  /// Subscribes to the query with the given `name` and converts data from the subscription into an
-  /// ``AnyPublisher<T, ClientError>``.
-  ///
-  /// The upstream Convex subscription will be canceled if whatever is subscribed to returned publisher
-  /// stops listening.
-  ///
-  /// - Parameters:
-  ///   - name: A value in "module:query_name"  format that will be used when calling the backend
-  ///   - args: An optional ``Dictionary`` of arguments to be sent to the backend query function
-  public func subscribe<T: Decodable>(_ name: String, args: [String: ConvexEncodable?]? = nil)
-    -> AnyPublisher<T, ClientError>
-  {
     let publisher = PassthroughSubject<T, ClientError>()
     let adapter = SubscriptionAdapter<T>(publisher: publisher)
     let cancelPublisher = Future<SubscriptionHandle, ClientError> {
@@ -104,10 +74,10 @@ public class ConvexClient {
   /// - Parameters:
   ///   - name: A value in "module:mutation_name"  format that will be used when calling the backend
   ///   - args: An optional ``Dictionary`` of arguments to be sent to the backend mutation function
-  public func mutation<T: Decodable>(name: String, args: [String: ConvexEncodable?]? = nil)
+  public func mutation<T: Decodable>(_ name: String, with args: [String: ConvexEncodable?]? = nil)
     async throws -> T
   {
-    return try await callForResult(name: name, args: args, remoteCall: ffiClient.mutation)
+    try await callForResult(name: name, args: args, remoteCall: ffiClient.mutation)
   }
 
   /// Executes the mutation with the given `name` and `args` without returning a result.
@@ -117,10 +87,10 @@ public class ConvexClient {
   /// - Parameters:
   ///   - name: A value in "module:mutation_name"  format that will be used when calling the backend
   ///   - args: An optional ``Dictionary`` of arguments to be sent to the backend mutation function
-  public func mutation(name: String, args: [String: ConvexEncodable?]? = nil)
+  public func mutation(_ name: String, with args: [String: ConvexEncodable?]? = nil)
     async throws
   {
-    let _: String? = try await callForResult(name: name, args: args, remoteCall: ffiClient.mutation)
+    let _: String? = try await mutation(name, with: args)
   }
 
   /// Executes the action with the given `name` and `args` and returns the result.
@@ -130,7 +100,7 @@ public class ConvexClient {
   /// - Parameters:
   ///   - name: A value in "module:mutation_name"  format that will be used when calling the backend
   ///   - args: An optional ``Dictionary`` of arguments to be sent to the backend mutation function
-  public func action<T: Decodable>(name: String, args: [String: ConvexEncodable?]? = nil)
+  public func action<T: Decodable>(_ name: String, with args: [String: ConvexEncodable?]? = nil)
     async throws -> T
   {
     return try await callForResult(name: name, args: args, remoteCall: ffiClient.action)
@@ -143,10 +113,10 @@ public class ConvexClient {
   /// - Parameters:
   ///   - name: A value in "module:mutation_name"  format that will be used when calling the backend
   ///   - args: An optional ``Dictionary`` of arguments to be sent to the backend mutation function
-  public func action(name: String, args: [String: ConvexEncodable?]? = nil)
+  public func action(_ name: String, with args: [String: ConvexEncodable?]? = nil)
     async throws
   {
-    let _: String? = try await callForResult(name: name, args: args, remoteCall: ffiClient.action)
+    let _: String? = try await action(name, with: args)
   }
 
   /// Common handler for `action` and `mutation` calls.
@@ -196,7 +166,7 @@ public protocol AuthProvider<T> {
   func loginFromCache() async throws -> T
   /// Extracts a [JWT ID token](https://openid.net/specs/openid-connect-core-1_0.html#IDToken)
   /// from the `authResult`.
-  func extractIdToken(authResult: T) -> String
+  func extractIdToken(from authResult: T) -> String
 }
 
 /// Like ``ConvexClient``, but supports integration with an authentication provider via ``AuthProvider``.
@@ -267,7 +237,7 @@ public class ConvexClientWithAuth<T>: ConvexClient {
     authPublisher.send(AuthState.loading)
     do {
       let result = try await strategy()
-      try await ffiClient.setAuth(token: authProvider.extractIdToken(authResult: result))
+      try await ffiClient.setAuth(token: authProvider.extractIdToken(from: result))
       authPublisher.send(AuthState.authenticated(result))
     } catch {
       dump(error)

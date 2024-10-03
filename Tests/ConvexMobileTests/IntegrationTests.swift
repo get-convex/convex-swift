@@ -14,12 +14,12 @@ private let deploymentUrl = "https://curious-lynx-309.convex.cloud"
 @Suite(.serialized) struct Test {
   init() async throws {
     let client = ConvexClient(deploymentUrl: deploymentUrl)
-    try await client.mutation(name: "messages:clearAll")
+    try await client.mutation("messages:clearAll")
   }
 
   @Test func test_empty_subscribe() async throws {
     let client = ConvexClient(deploymentUrl: deploymentUrl)
-    let s: AnyPublisher<[Message]?, ClientError> = client.subscribe(name: "messages:list")
+    let s = client.subscribe(to: "messages:list", yielding: [Message]?.self)
     var received = 0
     for await messages in s.replaceError(with: nil).first().values {
       #expect(messages! == [])
@@ -31,7 +31,7 @@ private let deploymentUrl = "https://curious-lynx-309.convex.cloud"
   @Test func test_convex_error_in_subscription() async throws {
     let client = ConvexClient(deploymentUrl: deploymentUrl)
     let s: AnyPublisher<[Message]?, ClientError> = client.subscribe(
-      name: "messages:list", args: ["forceError": true])
+      to: "messages:list", with: ["forceError": true])
     await #expect(throws: ClientError.ConvexError(data: "\"forced error data\"")) {
       for try await _ in s.first().values {}
     }
@@ -40,14 +40,14 @@ private let deploymentUrl = "https://curious-lynx-309.convex.cloud"
   @Test func test_convex_error_in_action() async throws {
     let client = ConvexClient(deploymentUrl: deploymentUrl)
     await #expect(throws: ClientError.ConvexError(data: "\"forced error data\"")) {
-      try await client.action(name: "messages:forceActionError")
+      try await client.action("messages:forceActionError")
     }
   }
 
   @Test func test_convex_error_in_mutation() async throws {
     let client = ConvexClient(deploymentUrl: deploymentUrl)
     await #expect(throws: ClientError.ConvexError(data: "\"forced error data\"")) {
-      try await client.mutation(name: "messages:forceMutationError")
+      try await client.mutation("messages:forceMutationError")
     }
   }
 
@@ -55,10 +55,10 @@ private let deploymentUrl = "https://curious-lynx-309.convex.cloud"
     let clientA = ConvexClient(deploymentUrl: deploymentUrl)
     let clientB = ConvexClient(deploymentUrl: deploymentUrl)
 
-    let messagesA: AnyPublisher<[Message]?, ClientError> = clientA.subscribe(name: "messages:list")
+    let messagesA: AnyPublisher<[Message]?, ClientError> = clientA.subscribe(to: "messages:list")
 
     try await clientB.mutation(
-      name: "messages:send", args: ["author": "Client B", "body": "Test 123"])
+      "messages:send", with: ["author": "Client B", "body": "Test 123"])
 
     var received = 0
     for await messages in messagesA.replaceError(with: nil).first().values {
@@ -72,7 +72,7 @@ private let deploymentUrl = "https://curious-lynx-309.convex.cloud"
     let clientA = ConvexClient(deploymentUrl: deploymentUrl)
     let clientB = ConvexClient(deploymentUrl: deploymentUrl)
 
-    let messagesA: AnyPublisher<[Message]?, ClientError> = clientA.subscribe(name: "messages:list")
+    let messagesA: AnyPublisher<[Message]?, ClientError> = clientA.subscribe(to: "messages:list")
 
     var receivedMessages: [[Message]] = []
 
@@ -94,7 +94,7 @@ private let deploymentUrl = "https://curious-lynx-309.convex.cloud"
       }
       for i in 1...3 {
         try await clientB.mutation(
-          name: "messages:send", args: ["author": "Client B", "body": "Message \(i)"])
+          "messages:send", with: ["author": "Client B", "body": "Message \(i)"])
       }
     }
 
@@ -124,7 +124,7 @@ private let deploymentUrl = "https://curious-lynx-309.convex.cloud"
       aFloat32: Float32.greatestFiniteMagnitude)
 
     let result: NumericValues = try await client.action(
-      name: "messages:echoValidatedArgs", args: maxValues.toArgs())
+      "messages:echoValidatedArgs", with: maxValues.toArgs())
 
     #expect(result == maxValues)
   }
@@ -133,7 +133,7 @@ private let deploymentUrl = "https://curious-lynx-309.convex.cloud"
     let client = ConvexClient(deploymentUrl: deploymentUrl)
     let specialFloats = SpecialFloats()
     let result: SpecialFloats = try await client.action(
-      name: "messages:echoArgs", args: specialFloats.toArgs())
+      "messages:echoArgs", with: specialFloats.toArgs())
 
     #expect(result.f32Nan.isNaN)
     #expect(result.f32NegInf == specialFloats.f32NegInf)
@@ -145,7 +145,7 @@ private let deploymentUrl = "https://curious-lynx-309.convex.cloud"
 
   @Test func can_receive_numbers() async throws {
     let client = ConvexClient(deploymentUrl: deploymentUrl)
-    let result: NumericValues = try await client.action(name: "messages:numbers")
+    let result: NumericValues = try await client.action("messages:numbers")
     let expected = NumericValues(
       anInt64: 100, aFloat64: 100.0, jsNumber: 100.0, anInt32: 100, aFloat32: 100.0)
     #expect(result == expected)
@@ -155,7 +155,7 @@ private let deploymentUrl = "https://curious-lynx-309.convex.cloud"
   @Test func can_receive_null_and_missing_float64_values() async throws {
     let client = ConvexClient(deploymentUrl: deploymentUrl)
     let result: NullableFloats = try await client.action(
-      name: "messages:echoArgs", args: ["aNullableDouble": nil])
+      "messages:echoArgs", with: ["aNullableDouble": nil])
     #expect(result == NullableFloats())
   }
 }

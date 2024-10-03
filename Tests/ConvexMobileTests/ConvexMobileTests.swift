@@ -10,7 +10,7 @@ final class ConvexMobileTests: XCTestCase {
     var result: Message?
     let client = ConvexMobile.ConvexClient(ffiClient: FakeMobileConvexClient())
 
-    let cancellationHandle = client.subscribe(name: "foo").sink(
+    let cancellationHandle = client.subscribe(to: "foo").sink(
       receiveCompletion: { completion in
         switch completion {
         case .finished:
@@ -40,7 +40,7 @@ final class ConvexMobileTests: XCTestCase {
     let client = ConvexMobile.ConvexClient(
       ffiClient: FakeMobileConvexClient(resultPublished: donePublishing))
 
-    let cancellationHandle = client.subscribe(name: "dupeVals")
+    let cancellationHandle = client.subscribe(to: "dupeVals")
       .removeDuplicates()
       .sink(
         receiveCompletion: { completion in
@@ -71,7 +71,7 @@ final class ConvexMobileTests: XCTestCase {
     var result: MessageWithOptionalVal?
     let client = ConvexMobile.ConvexClient(ffiClient: FakeMobileConvexClient())
 
-    let cancellationHandle = client.subscribe(name: "foo").sink(
+    let cancellationHandle = client.subscribe(to: "foo").sink(
       receiveCompletion: { completion in
         switch completion {
         case .finished:
@@ -99,7 +99,7 @@ final class ConvexMobileTests: XCTestCase {
     var result: MessageWithOptionalVal?
     let client = ConvexMobile.ConvexClient(ffiClient: FakeMobileConvexClient())
 
-    let cancellationHandle = client.subscribe(name: "nullVal").sink(
+    let cancellationHandle = client.subscribe(to: "nullVal").sink(
       receiveCompletion: { completion in
         switch completion {
         case .finished:
@@ -127,7 +127,7 @@ final class ConvexMobileTests: XCTestCase {
     var result: MessageWithOptionalVal?
     let client = ConvexMobile.ConvexClient(ffiClient: FakeMobileConvexClient())
 
-    let cancellationHandle = client.subscribe(name: "missingVal").sink(
+    let cancellationHandle = client.subscribe(to: "missingVal").sink(
       receiveCompletion: { completion in
         switch completion {
         case .finished:
@@ -154,7 +154,7 @@ final class ConvexMobileTests: XCTestCase {
     let fakeFfiClient = FakeMobileConvexClient()
     let client = ConvexMobile.ConvexClient(ffiClient: fakeFfiClient)
 
-    let cancellationHandle = try client.subscribe(name: "foo").sink(
+    let cancellationHandle = try client.subscribe(to: "foo").sink(
       receiveCompletion: { completion in
         switch completion {
         case .finished:
@@ -178,8 +178,8 @@ final class ConvexMobileTests: XCTestCase {
     let client = ConvexMobile.ConvexClient(ffiClient: fakeFfiClient)
 
     let cancellationHandle = client.subscribe(
-      name: "foo",
-      args: [
+      to: "foo",
+      with: [
         "aString": "bar", "aDouble": 42.0, "anInt": 42, "aNil": nil,
         "aDict": ["sub1": 1.0, "nested": ["ohmy": true]], "aList": [true, false, true, nil],
       ]
@@ -214,7 +214,7 @@ final class ConvexMobileTests: XCTestCase {
     let ffiClient = FakeMobileConvexClient()
     let client = ConvexMobile.ConvexClient(ffiClient: ffiClient)
 
-    let cancellationHandle = client.subscribe(name: "foo").sink(
+    let cancellationHandle = client.subscribe(to: "foo").sink(
       receiveCompletion: { completion in
         switch completion {
         case .finished:
@@ -239,7 +239,7 @@ final class ConvexMobileTests: XCTestCase {
     let fakeFfiClient = FakeMobileConvexClient()
     let client = ConvexMobile.ConvexClient(ffiClient: fakeFfiClient)
 
-    let message: Message = try await client.mutation(name: "foo", args: ["anInt": 101])
+    let message: Message = try await client.mutation("foo", with: ["anInt": 101])
 
     XCTAssertEqual(message.id, "the_id")
     XCTAssertEqual(message.val, 101)
@@ -249,7 +249,7 @@ final class ConvexMobileTests: XCTestCase {
     let fakeFfiClient = FakeMobileConvexClient()
     let client = ConvexMobile.ConvexClient(ffiClient: fakeFfiClient)
 
-    try await client.mutation(name: "nullResult")
+    try await client.mutation("nullResult")
 
     XCTAssertEqual(fakeFfiClient.mutationCalls, ["nullResult"])
   }
@@ -258,7 +258,7 @@ final class ConvexMobileTests: XCTestCase {
     let fakeFfiClient = FakeMobileConvexClient()
     let client = ConvexMobile.ConvexClient(ffiClient: fakeFfiClient)
 
-    let message: Message = try await client.action(name: "foo", args: ["anInt": Int.max])
+    let message: Message = try await client.action("foo", with: ["anInt": Int.max])
 
     XCTAssertEqual(message.id, "the_id")
     XCTAssertEqual(message.val, Int.max)
@@ -268,7 +268,7 @@ final class ConvexMobileTests: XCTestCase {
     let fakeFfiClient = FakeMobileConvexClient()
     let client = ConvexMobile.ConvexClient(ffiClient: fakeFfiClient)
 
-    try await client.action(name: "nullResult")
+    try await client.action("nullResult")
 
     XCTAssertEqual(fakeFfiClient.actionCalls, ["nullResult"])
   }
@@ -408,7 +408,7 @@ class FakeAuthProvider: AuthProvider {
 
   }
 
-  func extractIdToken(authResult: String) -> String {
+  func extractIdToken(from authResult: String) -> String {
     return "extracted: \(authResult)"
   }
 }
