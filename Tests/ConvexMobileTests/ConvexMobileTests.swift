@@ -29,7 +29,7 @@ final class ConvexMobileTests: XCTestCase {
 
     XCTAssertEqual(result!.id, "the_id")
     XCTAssertEqual(result!.val, 42)
-    XCTAssertEqual(error, nil)
+    XCTAssertNil(error)
   }
 
   func testSubscribeCanTrimDupeVals() async throws {
@@ -62,7 +62,7 @@ final class ConvexMobileTests: XCTestCase {
     await fulfillment(of: [donePublishing, receivedSomething], timeout: 10)
 
     XCTAssertEqual(result.count, 1)
-    XCTAssertEqual(error, nil)
+    XCTAssertNil(error)
   }
 
   func testSubscribeOptionalResultWithPresentVal() async throws {
@@ -90,7 +90,7 @@ final class ConvexMobileTests: XCTestCase {
 
     XCTAssertEqual(result!.id, "the_id")
     XCTAssertEqual(result!.val, 42)
-    XCTAssertEqual(error, nil)
+    XCTAssertNil(error)
   }
 
   func testSubscribeOptionalResultWithNullVal() async throws {
@@ -118,7 +118,7 @@ final class ConvexMobileTests: XCTestCase {
 
     XCTAssertEqual(result!.id, "the_id")
     XCTAssertEqual(result!.val, nil)
-    XCTAssertEqual(error, nil)
+    XCTAssertNil(error)
   }
 
   func testSubscribeOptionalResultWithMissingVal() async throws {
@@ -146,7 +146,7 @@ final class ConvexMobileTests: XCTestCase {
 
     XCTAssertEqual(result!.id, "the_id")
     XCTAssertEqual(result!.val, nil)
-    XCTAssertEqual(error, nil)
+    XCTAssertNil(error)
   }
 
   func testMissingSubscribeArgs() async throws {
@@ -191,10 +191,10 @@ final class ConvexMobileTests: XCTestCase {
         case .failure:
           break
         }
-      },
-      receiveValue: { (value: Message) in
+      }) {
+        (value: Message) in
         expectation.fulfill()
-      })
+      }
 
     await fulfillment(of: [expectation], timeout: 10)
 
@@ -232,7 +232,7 @@ final class ConvexMobileTests: XCTestCase {
     cancellationHandle.cancel()
 
     XCTAssertEqual(ffiClient.cancellationCount, 1)
-    XCTAssertEqual(error, nil)
+    XCTAssertNil(error)
   }
 
   func testMutationRoundTrip() async throws {
@@ -278,8 +278,9 @@ final class ConvexMobileTests: XCTestCase {
     let client = ConvexMobile.ConvexClientWithAuth(
       ffiClient: fakeFfiClient, authProvider: FakeAuthProvider())
 
-    await client.login()
+    let result = await client.login()
 
+    XCTAssertEqual(try result.get(), FakeAuthProvider.CREDENTIALS)
     XCTAssertEqual(fakeFfiClient.auth, "extracted: \(FakeAuthProvider.CREDENTIALS)")
   }
 
@@ -288,8 +289,9 @@ final class ConvexMobileTests: XCTestCase {
     let client = ConvexMobile.ConvexClientWithAuth(
       ffiClient: fakeFfiClient, authProvider: FakeAuthProvider())
 
-    await client.loginFromCache()
+    let result = await client.loginFromCache()
 
+    XCTAssertEqual(try result.get(), FakeAuthProvider.CREDENTIALS)
     XCTAssertEqual(fakeFfiClient.auth, "extracted: \(FakeAuthProvider.CREDENTIALS)")
   }
 
@@ -317,10 +319,11 @@ final class ConvexMobileTests: XCTestCase {
         }
       })
 
-    await client.login()
+    let result = await client.login()
 
     await fulfillment(of: [expectation], timeout: 10)
 
+    XCTAssertEqual(try result.get(), FakeAuthProvider.CREDENTIALS)
     XCTAssertEqual(credentials, FakeAuthProvider.CREDENTIALS)
   }
 }

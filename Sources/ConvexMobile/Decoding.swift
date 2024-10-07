@@ -30,6 +30,29 @@ public struct ConvexInt<IntegerType: FixedWidthInteger>: Decodable, Equatable {
 }
 
 @propertyWrapper
+public struct OptionalConvexInt<IntegerType: FixedWidthInteger>: Decodable, Equatable {
+  public var wrappedValue: IntegerType?
+
+  public init(wrappedValue: IntegerType?) {
+    self.wrappedValue = wrappedValue
+  }
+
+  public init(from decoder: Decoder) throws {
+    if let container = try? decoder.container(keyedBy: ConvexTypeKey.self) {
+      let b64int = try container.decode(String.self, forKey: .integer)
+      self.wrappedValue = Data(base64Encoded: b64int)!.withUnsafeBytes({
+        (rawPtr: UnsafeRawBufferPointer) in
+        return rawPtr.load(as: IntegerType.self)
+      })
+    }
+  }
+
+  enum ConvexTypeKey: String, CodingKey {
+    case integer = "$integer"
+  }
+}
+
+@propertyWrapper
 public struct ConvexFloat<FloatingPointType: BinaryFloatingPoint & Decodable>: Decodable, Equatable
 {
   public var wrappedValue: FloatingPointType
@@ -53,29 +76,6 @@ public struct ConvexFloat<FloatingPointType: BinaryFloatingPoint & Decodable>: D
 
   enum ConvexTypeKey: String, CodingKey {
     case float = "$float"
-  }
-}
-
-@propertyWrapper
-public struct OptionalConvexInt<IntegerType: FixedWidthInteger>: Decodable, Equatable {
-  public var wrappedValue: IntegerType?
-
-  public init(wrappedValue: IntegerType?) {
-    self.wrappedValue = wrappedValue
-  }
-
-  public init(from decoder: Decoder) throws {
-    if let container = try? decoder.container(keyedBy: ConvexTypeKey.self) {
-      let b64int = try container.decode(String.self, forKey: .integer)
-      self.wrappedValue = Data(base64Encoded: b64int)!.withUnsafeBytes({
-        (rawPtr: UnsafeRawBufferPointer) in
-        return rawPtr.load(as: IntegerType.self)
-      })
-    }
-  }
-
-  enum ConvexTypeKey: String, CodingKey {
-    case integer = "$integer"
   }
 }
 

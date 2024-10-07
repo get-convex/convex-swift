@@ -42,25 +42,38 @@ public class ConvexClient {
   public func subscribe<T: Decodable>(
     to name: String, with args: [String: ConvexEncodable?]? = nil, yielding output: T.Type? = nil
   ) -> AnyPublisher<T, ClientError> {
-    let publisher = PassthroughSubject<T, ClientError>()
-    let adapter = SubscriptionAdapter<T>(publisher: publisher)
-    let cancelPublisher = Future<SubscriptionHandle, ClientError> {
-      promise in
+    // There are two steps to producing the final Publisher in this method.
+    // 1. Subscribe to the data from Convex and publish the subscription handle
+    // 2. Feed the subscription handle into the Convex data Publisher so it can cancel the upstream
+    //    subscription when downstream subscribers are done consuming data
+
+    // This Publisher will ultimated publish the data received from Convex.
+    let convexPublisher = PassthroughSubject<T, ClientError>()
+    let adapter = SubscriptionAdapter<T>(publisher: convexPublisher)
+
+    // This Publisher is responsible for initializing the Convex subscription and returning a handle
+    // to the upstream (Convex) subscription.
+    let initializationPublisher = Future<SubscriptionHandle, ClientError> {
+      result in
       Task {
         do {
-          let cancellationHandle = try await self.ffiClient.subscribe(
+          let subscriptionHandle = try await self.ffiClient.subscribe(
             name: name,
             args: args?.mapValues({ v in
               try v?.convexEncode() ?? "null"
             }) ?? [:], subscriber: adapter)
-          promise(.success(cancellationHandle))
+          result(.success(subscriptionHandle))
         } catch {
-          promise(.failure(ClientError.InternalError(msg: error.localizedDescription)))
+          result(.failure(ClientError.InternalError(msg: error.localizedDescription)))
         }
       }
     }
-    return cancelPublisher.flatMap({ subscriptionHandle in
-      publisher.handleEvents(receiveCancel: {
+
+    // The final Publisher takes the handle from the initial Convex subscription and supplies it to
+    // the data publisher so it can cancel the upstream subscription when consumers are no longer
+    // listening for data.
+    return initializationPublisher.flatMap({ subscriptionHandle in
+      convexPublisher.handleEvents(receiveCancel: {
         subscriptionHandle.cancel()
       })
     })
@@ -202,7 +215,7 @@ public class ConvexClientWithAuth<T>: ConvexClient {
   /// The ``authState`` is set to ``AuthState.loading`` immediately upon calling this method and
   /// will change to either ``AuthState.authenticated`` or ``AuthState.unauthenticated``
   /// depending on the result.
-  public func login() async {
+  public func login() async -> Result<T, Error> {
     await login(strategy: authProvider.login)
   }
 
@@ -211,12 +224,12 @@ public class ConvexClientWithAuth<T>: ConvexClient {
   ///
   /// If no credentials were previously stored, or if there is an error reusing stored credentials, the resulting
   /// ``authState`` willl be ``AuthState.unauthenticated``. If supported by the ``AuthProvider``,
-  /// a call to ``login()`` should store another set of credntials upon successful authentication.
+  /// a call to ``login()`` should store another set of credentials upon successful authentication.
   ///
   /// The ``authState`` is set to ``AuthState.loading`` immediately upon calling this method and
   /// will change to either ``AuthState.authenticated`` or ``AuthState.unauthenticated``
   /// depending on the result.
-  public func loginFromCache() async {
+  public func loginFromCache() async -> Result<T, Error> {
     await login(strategy: authProvider.loginFromCache)
   }
 
@@ -233,22 +246,24 @@ public class ConvexClientWithAuth<T>: ConvexClient {
     }
   }
 
-  private func login(strategy: LoginStrategy) async {
+  private func login(strategy: LoginStrategy) async -> Result<T, Error> {
     authPublisher.send(AuthState.loading)
     do {
-      let result = try await strategy()
-      try await ffiClient.setAuth(token: authProvider.extractIdToken(from: result))
-      authPublisher.send(AuthState.authenticated(result))
+      let authData = try await strategy()
+      try await ffiClient.setAuth(token: authProvider.extractIdToken(from: authData))
+      authPublisher.send(AuthState.authenticated(authData))
+      return Result.success(authData)
     } catch {
       dump(error)
       authPublisher.send(AuthState.unauthenticated)
+      return Result.failure(error)
     }
   }
 
   private typealias LoginStrategy = () async throws -> T
 }
 
-class SubscriptionAdapter<T: Decodable>: QuerySubscriber {
+private class SubscriptionAdapter<T: Decodable>: QuerySubscriber {
   typealias Publisher = PassthroughSubject<T, ClientError>
 
   let publisher: Publisher
