@@ -286,7 +286,7 @@ void uniffi_convexmobile_fn_free_mobileconvexclient(void*_Nonnull ptr, RustCallS
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_CONVEXMOBILE_FN_CONSTRUCTOR_MOBILECONVEXCLIENT_NEW
 #define UNIFFI_FFIDEF_UNIFFI_CONVEXMOBILE_FN_CONSTRUCTOR_MOBILECONVEXCLIENT_NEW
-void*_Nonnull uniffi_convexmobile_fn_constructor_mobileconvexclient_new(RustBuffer deployment_url, RustCallStatus *_Nonnull out_status
+void*_Nonnull uniffi_convexmobile_fn_constructor_mobileconvexclient_new(RustBuffer deployment_url, RustBuffer client_id, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_CONVEXMOBILE_FN_METHOD_MOBILECONVEXCLIENT_ACTION

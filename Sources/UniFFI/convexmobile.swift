@@ -466,11 +466,12 @@ open class MobileConvexClient:
   public func uniffiClonePointer() -> UnsafeMutableRawPointer {
     return try! rustCall { uniffi_convexmobile_fn_clone_mobileconvexclient(self.pointer, $0) }
   }
-  public convenience init(deploymentUrl: String) {
+  public convenience init(deploymentUrl: String, clientId: String) {
     let pointer =
       try! rustCall {
         uniffi_convexmobile_fn_constructor_mobileconvexclient_new(
-          FfiConverterString.lower(deploymentUrl), $0
+          FfiConverterString.lower(deploymentUrl),
+          FfiConverterString.lower(clientId), $0
         )
       }
     self.init(unsafeFromRawPointer: pointer)
@@ -1117,7 +1118,7 @@ private var initializationResult: InitializationResult = {
   if uniffi_convexmobile_checksum_method_subscriptionhandle_cancel() != 26127 {
     return InitializationResult.apiChecksumMismatch
   }
-  if uniffi_convexmobile_checksum_constructor_mobileconvexclient_new() != 22808 {
+  if uniffi_convexmobile_checksum_constructor_mobileconvexclient_new() != 52554 {
     return InitializationResult.apiChecksumMismatch
   }
 
