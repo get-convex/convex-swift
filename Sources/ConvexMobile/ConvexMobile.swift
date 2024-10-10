@@ -21,8 +21,7 @@ public class ConvexClient {
   /// - Parameters:
   ///   - deploymentUrl: The Convex backend URL to connect to; find it in the [dashboard](https://dashboard.convex.dev) Settings for your project
   public init(deploymentUrl: String) {
-    // TODO: remove hardcoded clientId
-    self.ffiClient = UniFFI.MobileConvexClient(deploymentUrl: deploymentUrl, clientId: "swift-0.5.3")
+    self.ffiClient = UniFFI.MobileConvexClient(deploymentUrl: deploymentUrl, clientId: "swift-\(convexMobileVersion)")
   }
 
   init(ffiClient: UniFFI.MobileConvexClientProtocol) {
