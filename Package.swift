@@ -20,20 +20,13 @@ let package = Package(
       name: "ConvexMobile",
       targets: ["ConvexMobile"])
   ],
-  dependencies: [
-    .package(url: "https://github.com/DimaRU/PackageBuildInfo", exact: "1.0.2")
-  ],
   targets: [
     binaryTarget,
     // Targets are the basic building blocks of a package, defining a module or a test suite.
     // Targets can depend on other targets in this package and products from dependencies.
     .target(
       name: "ConvexMobile",
-      dependencies: [.target(name: "UniFFI")],
-      plugins: [
-        .plugin(name: "PackageBuildInfoPlugin", package: "PackageBuildInfo")
-      ]
-    ),
+      dependencies: [.target(name: "UniFFI")]),
     .target(
       name: "UniFFI",
       dependencies: [.target(name: "ConvexMobileCoreRS")],

@@ -21,7 +21,8 @@ public class ConvexClient {
   /// - Parameters:
   ///   - deploymentUrl: The Convex backend URL to connect to; find it in the [dashboard](https://dashboard.convex.dev) Settings for your project
   public init(deploymentUrl: String) {
-    self.ffiClient = UniFFI.MobileConvexClient(deploymentUrl: deploymentUrl, clientId: clientId)
+    // TODO: remove hardcoded clientId
+    self.ffiClient = UniFFI.MobileConvexClient(deploymentUrl: deploymentUrl, clientId: "swift-0.5.3")
   }
 
   init(ffiClient: UniFFI.MobileConvexClientProtocol) {
@@ -287,9 +288,4 @@ private class SubscriptionAdapter<T: Decodable>: QuerySubscriber {
     publisher.send(try! JSONDecoder().decode(Publisher.Output.self, from: Data(value.utf8)))
   }
 
-}
-
-private var clientId: String {
-  // PackageBuild is generated at compile time.
-  "swift-\(PackageBuild.info.tag ?? "unknown")\(PackageBuild.info.isDirty ? ".dirty" : "")"
 }
