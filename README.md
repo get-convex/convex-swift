@@ -25,6 +25,9 @@ pointing to this Github repo. See the quickstart linked above for step-by-step i
 
 ## Basic Usage
 
+The code below shows a few basic patterns for working with the library. See the
+[full documentation](https://docs.convex.dev/client/swift) for more details.
+
 ```swift
 import ConvexMobile
 
