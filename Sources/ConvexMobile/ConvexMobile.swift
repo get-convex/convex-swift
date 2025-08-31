@@ -169,11 +169,12 @@ public enum AuthState<T> {
 /// An authentication provider, used with ``ConvexClientWithAuth``.
 ///
 /// The generic type `T` is the data returned by the provider upon a successful authentication attempt.
-public protocol AuthProvider<T> {
+public protocol AuthProvider<T, LoginParams> {
   associatedtype T
+  associatedtype LoginParams
 
   /// Trigger a login flow, which might launch a new UI/screen.
-  func login() async throws -> T
+  func login(with loginParams: LoginParams) async throws -> T
   /// Trigger a logout flow, which might launch a new UI/screen.
   func logout() async throws
   /// Trigger a cached, UI-less re-authentication ussing stored credentials from a previous ``login()``.
@@ -187,9 +188,9 @@ public protocol AuthProvider<T> {
 ///
 /// The generic parameter `T` matches the type of data returned by the ``AuthProvider`` upon successful
 /// authentication.
-public class ConvexClientWithAuth<T>: ConvexClient {
+public class ConvexClientWithAuth<T, LoginParams>: ConvexClient {
   private let authPublisher = CurrentValueSubject<AuthState<T>, Never>(AuthState.unauthenticated)
-  private let authProvider: any AuthProvider<T>
+  private let authProvider: any AuthProvider<T, LoginParams>
 
   /// A publisher that updates with the current ``AuthState`` of this client instance.
   public let authState: AnyPublisher<AuthState<T>, Never>
@@ -199,13 +200,13 @@ public class ConvexClientWithAuth<T>: ConvexClient {
   /// - Parameters:
   ///   - deploymentUrl: The Convex backend URL to connect to; find it in the [dashboard](https://dashboard.convex.dev) Settings for your project
   ///   - authProvider: An instance that will handle the actual authentication duties.
-  public init(deploymentUrl: String, authProvider: any AuthProvider<T>) {
+  public init(deploymentUrl: String, authProvider: any AuthProvider<T, LoginParams>) {
     self.authProvider = authProvider
     self.authState = authPublisher.eraseToAnyPublisher()
     super.init(deploymentUrl: deploymentUrl)
   }
 
-  init(ffiClient: MobileConvexClientProtocol, authProvider: any AuthProvider<T>) {
+  init(ffiClient: MobileConvexClientProtocol, authProvider: any AuthProvider<T, LoginParams>) {
     self.authProvider = authProvider
     self.authState = authPublisher.eraseToAnyPublisher()
     super.init(ffiClient: ffiClient)
@@ -216,8 +217,10 @@ public class ConvexClientWithAuth<T>: ConvexClient {
   /// The ``authState`` is set to ``AuthState.loading`` immediately upon calling this method and
   /// will change to either ``AuthState.authenticated`` or ``AuthState.unauthenticated``
   /// depending on the result.
-  public func login() async -> Result<T, Error> {
-    await login(strategy: authProvider.login)
+  public func login(with loginParams: LoginParams) async throws -> T {
+    try await login {
+        try await authProvider.login(with: loginParams)
+    }
   }
 
   /// Triggers a cached, UI-less re-authentication flow using previously stored credentials and updates the
@@ -230,8 +233,8 @@ public class ConvexClientWithAuth<T>: ConvexClient {
   /// The ``authState`` is set to ``AuthState.loading`` immediately upon calling this method and
   /// will change to either ``AuthState.authenticated`` or ``AuthState.unauthenticated``
   /// depending on the result.
-  public func loginFromCache() async -> Result<T, Error> {
-    await login(strategy: authProvider.loginFromCache)
+  public func loginFromCache() async throws -> T {
+    try await login(strategy: authProvider.loginFromCache)
   }
 
   /// Triggers a logout flow and updates the ``authState``.
@@ -247,17 +250,17 @@ public class ConvexClientWithAuth<T>: ConvexClient {
     }
   }
 
-  private func login(strategy: LoginStrategy) async -> Result<T, Error> {
+  private func login(strategy: LoginStrategy) async throws -> T {
     authPublisher.send(AuthState.loading)
     do {
       let authData = try await strategy()
       try await ffiClient.setAuth(token: authProvider.extractIdToken(from: authData))
       authPublisher.send(AuthState.authenticated(authData))
-      return Result.success(authData)
+      return authData
     } catch {
       dump(error)
       authPublisher.send(AuthState.unauthenticated)
-      return Result.failure(error)
+      throw error
     }
   }
 
