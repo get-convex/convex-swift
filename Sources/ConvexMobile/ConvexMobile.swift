@@ -147,7 +147,7 @@ public class ConvexClient {
       args?.mapValues({ v in
         try v?.convexEncode() ?? "null"
       }) ?? [:])
-    return try! JSONDecoder().decode(T.self, from: Data(rawResult.utf8))
+    return try JSONDecoder().decode(T.self, from: Data(rawResult.utf8))
   }
 
   typealias RemoteCall = (String, [String: String]) async throws -> String
@@ -288,7 +288,15 @@ private class SubscriptionAdapter<T: Decodable>: QuerySubscriber {
   }
 
   func onUpdate(value: String) {
-    publisher.send(try! JSONDecoder().decode(Publisher.Output.self, from: Data(value.utf8)))
-  }
+    do {
+        let output = try JSONDecoder().decode(Publisher.Output.self, from: Data(value.utf8))
 
+        publisher.send(output)
+    } catch {
+        publisher.send(
+          completion: .failure(ClientError.DecodingError(msg: error.localizedDescription))
+        )
+    }
+  }
+  
 }
