@@ -294,7 +294,7 @@ private class SubscriptionAdapter<T: Decodable>: QuerySubscriber {
         publisher.send(output)
     } catch {
         publisher.send(
-          completion: .failure(ClientError.DecodingError(msg: error.localizedDescription))
+          completion: .failure(ClientError.InternalError(msg: error.localizedDescription))
         )
     }
   }
