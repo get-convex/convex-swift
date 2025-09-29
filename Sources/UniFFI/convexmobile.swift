@@ -226,7 +226,7 @@ private enum UniffiInternalError: LocalizedError {
     case .unexpectedRustCallStatusCode: return "Unexpected RustCallStatus code"
     case .unexpectedRustCallError: return "CALL_ERROR but no errorClass specified"
     case .unexpectedStaleHandle: return "The object in the handle map has been dropped already"
-    case let .rustPanic(message): return message
+    case .rustPanic(let message): return message
     }
   }
 }
@@ -962,15 +962,15 @@ public struct FfiConverterTypeClientError: FfiConverterRustBuffer {
   public static func write(_ value: ClientError, into buf: inout [UInt8]) {
     switch value {
 
-    case let .InternalError(msg):
+    case .InternalError(let msg):
       writeInt(&buf, Int32(1))
       FfiConverterString.write(msg, into: &buf)
 
-    case let .ConvexError(data):
+    case .ConvexError(let data):
       writeInt(&buf, Int32(2))
       FfiConverterString.write(data, into: &buf)
 
-    case let .ServerError(msg):
+    case .ServerError(let msg):
       writeInt(&buf, Int32(3))
       FfiConverterString.write(msg, into: &buf)
 
