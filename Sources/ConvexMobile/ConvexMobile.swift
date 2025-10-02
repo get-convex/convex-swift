@@ -189,7 +189,7 @@ public protocol AuthProvider<T, LoginParams> {
 /// The generic parameter `T` matches the type of data returned by the ``AuthProvider`` upon successful
 /// authentication.
 public class ConvexClientWithAuth<T, LoginParams>: ConvexClient {
-  private let authPublisher = CurrentValueSubject<AuthState<T>, Never>(AuthState.unauthenticated)
+  private let authPublisher = CurrentValueSubject<AuthState<T>, Never>(AuthState.loading)
   private let authProvider: any AuthProvider<T, LoginParams>
 
   /// A publisher that updates with the current ``AuthState`` of this client instance.
