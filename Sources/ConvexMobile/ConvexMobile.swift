@@ -240,13 +240,14 @@ public class ConvexClientWithAuth<T, LoginParams>: ConvexClient {
   /// Triggers a logout flow and updates the ``authState``.
   ///
   /// The ``authState`` will change to ``AuthState.unauthenticated`` if logout is successful.
-  public func logout() async {
+  public func logout() async throws {
     do {
       try await authProvider.logout()
       try await ffiClient.setAuth(token: nil)
       authPublisher.send(AuthState.unauthenticated)
     } catch {
       dump(error)
+      throw error
     }
   }
 
