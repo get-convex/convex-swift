@@ -5,6 +5,10 @@ import Combine
 import Foundation
 @_exported import UniFFI
 
+#if canImport(UIKit)
+import UIKit
+#endif
+
 // MARK: - JWT Helper
 
 /// Helper struct to decode JWT tokens and extract expiration information
@@ -487,6 +491,7 @@ public class ConvexClientWithAuth<T>: ConvexClient {
   private let authPublisher = CurrentValueSubject<AuthState<T>, Never>(AuthState.unauthenticated)
   private let authProvider: any AuthProvider<T>
   private var tokenRefreshManager: TokenRefreshManager<T>?
+  private var foregroundObserver: AnyCancellable?
 
   /// A publisher that updates with the current ``AuthState`` of this client instance.
   public let authState: AnyPublisher<AuthState<T>, Never>
@@ -501,6 +506,7 @@ public class ConvexClientWithAuth<T>: ConvexClient {
     self.authState = authPublisher.eraseToAnyPublisher()
     super.init(deploymentUrl: deploymentUrl)
     setupTokenRefreshManager()
+    setupForegroundObserver()
   }
 
   init(ffiClient: MobileConvexClientProtocol, authProvider: any AuthProvider<T>) {
@@ -508,6 +514,7 @@ public class ConvexClientWithAuth<T>: ConvexClient {
     self.authState = authPublisher.eraseToAnyPublisher()
     super.init(ffiClient: ffiClient)
     setupTokenRefreshManager()
+    setupForegroundObserver()
   }
 
   private func setupTokenRefreshManager() {
@@ -520,15 +527,67 @@ public class ConvexClientWithAuth<T>: ConvexClient {
       },
       onRefreshFailed: { [weak self] error in
         guard let self = self else { return }
-        #if DEBUG
-        print("[TokenRefresh] ❌ Token refresh failed, logging out user: \(error)")
+
+        // Check if app is in background
+        #if canImport(UIKit)
+        let isBackground = await MainActor.run {
+          UIApplication.shared.applicationState == .background
+        }
+        #else
+        let isBackground = false
         #endif
-        // Token refresh failed, log the user out
-        Task {
-          await self.logout()
+
+        #if DEBUG
+        print("[TokenRefresh] ❌ Token refresh failed (background: \(isBackground)): \(error)")
+        #endif
+
+        // Don't logout if app is in background - iOS suspends network requests
+        // We'll retry when app comes back to foreground
+        if isBackground {
+          #if DEBUG
+          print("[TokenRefresh] ⚠️ App is in background - keeping credentials for foreground retry")
+          #endif
+          return
+        } else {
+          // Only logout if in foreground (user is actively using the app)
+          #if DEBUG
+          print("[TokenRefresh] 🚪 App is in foreground - logging out user")
+          #endif
+          Task {
+            await self.logout()
+          }
         }
       }
     )
+  }
+
+  /// Sets up observer for app returning to foreground to retry token refresh if needed
+  private func setupForegroundObserver() {
+    #if canImport(UIKit)
+    foregroundObserver = NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)
+      .sink { [weak self] _ in
+        Task { @MainActor [weak self] in
+          guard let self = self else { return }
+
+          // Check if we have authenticated credentials
+          guard case .authenticated(let authData) = try? await self.authState.first().get() else {
+            return
+          }
+
+          // Check if token needs refresh
+          let token = self.authProvider.extractIdToken(from: authData)
+          if let expirationDate = JWTDecoder.extractExpiration(from: token),
+             Date().addingTimeInterval(60) >= expirationDate {
+            #if DEBUG
+            print("[TokenRefresh] 🔄 App entering foreground with expired token - triggering refresh")
+            #endif
+
+            // Re-start monitoring which will trigger immediate refresh if needed
+            self.tokenRefreshManager?.startMonitoring(authData: authData)
+          }
+        }
+      }
+    #endif
   }
 
   /// Triggers a UI driven login flow and updates the ``authState``.
