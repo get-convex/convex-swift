@@ -48,6 +48,9 @@ class TokenRefreshManager<T> {
   private var refreshTimer: AnyCancellable?
   private var currentAuthData: T?
   private let refreshLeewaySeconds: TimeInterval
+  private let maxRetries: Int
+  private let baseRetryDelay: TimeInterval
+  private var isRefreshing = false
 
   /// Creates a new token refresh manager.
   ///
@@ -56,16 +59,65 @@ class TokenRefreshManager<T> {
   ///   - refreshLeewaySeconds: How many seconds before expiration to refresh the token (default: 60)
   ///   - onTokenRefreshed: Callback when a new token is available
   ///   - onRefreshFailed: Callback when token refresh fails
+  ///   - maxRetries: Maximum number of retry attempts for transient errors (default: 3)
+  ///   - baseRetryDelay: Base delay between retries in seconds (default: 2, uses exponential backoff)
   init(
     authProvider: any AuthProvider<T>,
     refreshLeewaySeconds: TimeInterval = 60,
     onTokenRefreshed: @escaping (String) async throws -> Void,
-    onRefreshFailed: @escaping (Error) -> Void
+    onRefreshFailed: @escaping (Error) -> Void,
+    maxRetries: Int = 3,
+    baseRetryDelay: TimeInterval = 2
   ) {
     self.authProvider = authProvider
     self.refreshLeewaySeconds = refreshLeewaySeconds
     self.onTokenRefreshed = onTokenRefreshed
     self.onRefreshFailed = onRefreshFailed
+    self.maxRetries = maxRetries
+    self.baseRetryDelay = baseRetryDelay
+  }
+
+  /// Classifies errors as transient (retryable) or permanent (requires logout).
+  ///
+  /// Transient errors include network issues that may resolve on retry:
+  /// - TLS errors (certificate validation, handshake failures)
+  /// - Connection timeouts
+  /// - Network unreachable
+  ///
+  /// Permanent errors include authentication failures:
+  /// - Invalid credentials
+  /// - Expired refresh tokens
+  /// - Server rejections (401, 403)
+  private func isTransientError(_ error: Error) -> Bool {
+    let nsError = error as NSError
+
+    // Network-related errors (NSURLErrorDomain)
+    if nsError.domain == NSURLErrorDomain {
+      switch nsError.code {
+      case NSURLErrorTimedOut,
+           NSURLErrorCannotConnectToHost,
+           NSURLErrorNetworkConnectionLost,
+           NSURLErrorNotConnectedToInternet,
+           NSURLErrorSecureConnectionFailed,
+           NSURLErrorServerCertificateUntrusted,
+           NSURLErrorServerCertificateHasUnknownRoot,
+           NSURLErrorServerCertificateNotYetValid,
+           -1200:  // SSL/TLS error
+        return true
+      default:
+        return false
+      }
+    }
+
+    // Check for kCFErrorDomainCFNetwork errors (TLS errors)
+    if nsError.domain == "kCFErrorDomainCFNetwork" || nsError.domain == String(kCFErrorDomainCFNetwork) {
+      // TLS/SSL errors like -9816, -9819, etc.
+      return abs(nsError.code) >= 9800 && abs(nsError.code) <= 9900
+    }
+
+    // Authentication-specific errors should NOT be retried
+    // These are handled by checking the error type in performRefresh
+    return false
   }
 
   /// Starts monitoring the token for expiration and scheduling refresh.
@@ -91,9 +143,18 @@ class TokenRefreshManager<T> {
     #endif
 
     if timeUntilRefresh <= 0 {
-      // Token already expired or about to expire, refresh immediately
+      // Token already expired or about to expire
+      // Add a delay to allow network to stabilize after reconnection
+      // This prevents TLS errors when refreshing immediately after network comes back
+      let networkStabilizationDelay: TimeInterval = 3.0
+
+      #if DEBUG
+      print("[TokenRefresh] Token expired/expiring, waiting \(Int(networkStabilizationDelay))s for network to stabilize...")
+      #endif
+
       Task { [weak self] in
-        await self?.performRefresh()
+        try? await Task.sleep(nanoseconds: UInt64(networkStabilizationDelay * 1_000_000_000))
+        await self?.performRefreshWithRetry()
       }
       return
     }
@@ -104,7 +165,7 @@ class TokenRefreshManager<T> {
       .first()
       .sink { [weak self] _ in
         Task {
-          await self?.performRefresh()
+          await self?.performRefreshWithRetry()
         }
       }
   }
@@ -114,12 +175,28 @@ class TokenRefreshManager<T> {
     refreshTimer?.cancel()
     refreshTimer = nil
     currentAuthData = nil
+    isRefreshing = false
   }
 
-  private func performRefresh() async {
+  /// Performs token refresh with automatic retry for transient errors.
+  ///
+  /// This method implements an exponential backoff retry strategy for transient network errors
+  /// while immediately failing for permanent authentication errors.
+  private func performRefreshWithRetry(retryAttempt: Int = 0) async {
     guard let authData = currentAuthData else {
       return
     }
+
+    // Prevent concurrent refresh attempts
+    guard !isRefreshing else {
+      #if DEBUG
+      print("[TokenRefresh] ⚠️ Refresh already in progress, skipping")
+      #endif
+      return
+    }
+
+    isRefreshing = true
+    defer { isRefreshing = false }
 
     do {
       let newAuthData = try await authProvider.refreshToken(from: authData)
@@ -132,21 +209,48 @@ class TokenRefreshManager<T> {
       try await onTokenRefreshed(newToken)
 
       #if DEBUG
-      print("[TokenRefresh] ✅ Token refreshed successfully")
+      print("[TokenRefresh] ✅ Token refreshed successfully" + (retryAttempt > 0 ? " (after \(retryAttempt) retries)" : ""))
       #endif
 
       // Schedule next refresh
       startMonitoring(authData: newAuthData)
     } catch AuthProviderError.refreshNotSupported {
-      // Provider doesn't support refresh - this is okay
+      // Provider doesn't support refresh - this is okay, don't retry
       #if DEBUG
       print("[TokenRefresh] ℹ️ Provider doesn't support token refresh")
       #endif
     } catch {
+      let isTransient = isTransientError(error)
+
       #if DEBUG
-      print("[TokenRefresh] ❌ Token refresh failed: \(error)")
+      print("[TokenRefresh] ❌ Token refresh failed (\(isTransient ? "transient" : "permanent") error): \(error)")
       #endif
-      onRefreshFailed(error)
+
+      // Retry transient errors with exponential backoff
+      if isTransient && retryAttempt < maxRetries {
+        let delay = baseRetryDelay * pow(2.0, Double(retryAttempt))
+
+        #if DEBUG
+        print("[TokenRefresh] 🔄 Retrying in \(Int(delay))s (attempt \(retryAttempt + 1)/\(maxRetries))...")
+        #endif
+
+        isRefreshing = false  // Allow retry
+        try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+
+        await performRefreshWithRetry(retryAttempt: retryAttempt + 1)
+      } else {
+        // Permanent error or max retries exceeded - notify failure
+        if retryAttempt >= maxRetries {
+          #if DEBUG
+          print("[TokenRefresh] ❌ Max retries (\(maxRetries)) exceeded, logging out user")
+          #endif
+        } else {
+          #if DEBUG
+          print("[TokenRefresh] ❌ Permanent authentication error, logging out user")
+          #endif
+        }
+        onRefreshFailed(error)
+      }
     }
   }
 }

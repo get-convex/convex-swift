@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.1] - 2025-10-26
+
+### Fixed
+- **Token Refresh Stability**: Fixed users being logged out after network reconnections
+  - Added retry logic with exponential backoff (3 retries: 2s, 4s, 8s delays)
+  - Smart error classification distinguishes transient network errors from permanent auth failures
+  - Network-aware delay (3 seconds) after reconnection prevents TLS handshake failures
+  - Prevents concurrent refresh attempts with lock mechanism
+  - Transient errors (TLS -1200/-9816, timeouts, connection failures) now trigger automatic retry
+  - Permanent errors (invalid credentials, expired tokens) immediately logout as before
+
+### Changed
+- `TokenRefreshManager` now includes `maxRetries` and `baseRetryDelay` configuration options
+  - Default: 3 retries with 2-second base delay (exponential backoff)
+  - Configurable for different use cases and network conditions
+
+### Technical Details
+- **Error Classification**: New `isTransientError()` method identifies retryable network issues
+- **Network Stabilization**: 3-second delay before refresh when token expires during network reconnection
+- **Exponential Backoff**: Retry delays increase as 2s → 4s → 8s for better recovery
+- **Concurrency Safety**: `isRefreshing` flag prevents duplicate refresh attempts
+- **Debug Logging**: Enhanced logs show retry attempts, error types, and delays
+
 ## [0.6.0] - 2025-10-25
 
 ### Added
