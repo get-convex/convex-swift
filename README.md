@@ -50,7 +50,39 @@ for await latestValue in yourData {
 
 try await client.mutation("your:mutation", with: ["anotherArg": "anotherVal", "anInt": 42])
 ```
- 
+
+## Authentication & Token Refresh
+
+`ConvexClientWithAuth` supports automatic JWT token refresh to prevent authentication errors in long-running apps.
+
+### Enabling Token Refresh
+
+To enable automatic token refresh, implement the `refreshToken(from:)` method in your `AuthProvider`:
+
+```swift
+extension MyAuthProvider {
+  public func refreshToken(from authResult: Credentials) async throws -> Credentials {
+    guard let refreshToken = authResult.refreshToken else {
+      throw AuthProviderError.tokenExpired
+    }
+    // Call your authentication provider's refresh endpoint
+    return try await refreshAccessToken(refreshToken)
+  }
+}
+```
+
+### How It Works
+
+- `ConvexClientWithAuth` automatically monitors JWT token expiration
+- Tokens are refreshed **60 seconds before expiry** (proactive approach)
+- Fresh tokens are automatically sent to Convex without interrupting your app
+- If refresh fails, the user is logged out gracefully
+
+### Without Token Refresh
+
+If your `AuthProvider` doesn't implement `refreshToken(from:)`, the app will continue to work normally. Tokens will eventually expire, requiring the user to log in again. This is handled by the default implementation that throws `AuthProviderError.refreshNotSupported`.
+
+
 ## Building
 
 ### The complete way

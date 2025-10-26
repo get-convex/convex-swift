@@ -326,6 +326,53 @@ final class ConvexMobileTests: XCTestCase {
     XCTAssertEqual(try result.get(), FakeAuthProvider.CREDENTIALS)
     XCTAssertEqual(credentials, FakeAuthProvider.CREDENTIALS)
   }
+
+  // MARK: - Token Refresh Tests
+
+  func testProviderWithoutRefreshSupport() async throws {
+    // Test that providers without refresh support don't cause issues
+    let providerWithoutRefresh = FakeAuthProviderWithoutRefresh()
+    let client = ConvexMobile.ConvexClientWithAuth(
+      ffiClient: FakeMobileConvexClient(), authProvider: providerWithoutRefresh)
+
+    let result = await client.login()
+
+    // Should login successfully even without refresh support
+    XCTAssertEqual(try result.get(), FakeAuthProviderWithoutRefresh.CREDENTIALS)
+
+    // Attempting to refresh should throw refreshNotSupported
+    do {
+      _ = try await providerWithoutRefresh.refreshToken(from: FakeAuthProviderWithoutRefresh.CREDENTIALS)
+      XCTFail("Should have thrown refreshNotSupported error")
+    } catch AuthProviderError.refreshNotSupported {
+      // Expected error
+      XCTAssertTrue(true)
+    } catch {
+      XCTFail("Unexpected error: \(error)")
+    }
+  }
+
+  func testProviderWithRefreshSupport() async throws {
+    let provider = FakeRefreshableAuthProvider()
+    let ffiClient = FakeMobileConvexClient()
+    let client = ConvexMobile.ConvexClientWithAuth(
+      ffiClient: ffiClient, authProvider: provider)
+
+    _ = await client.login()
+
+    // Verify refresh works
+    let refreshedCreds = try await provider.refreshToken(from: "old_token")
+    XCTAssertEqual(refreshedCreds, "refreshed_token")
+    XCTAssertEqual(provider.refreshCallCount, 1)
+  }
+
+  func testRefreshTokenExtractsNewIdToken() async throws {
+    let provider = FakeRefreshableAuthProvider()
+    let newCreds = try await provider.refreshToken(from: "old_token")
+    let idToken = provider.extractIdToken(from: newCreds)
+
+    XCTAssertEqual(idToken, "extracted: refreshed_token")
+  }
 }
 
 class FakeMobileConvexClient: UniFFI.MobileConvexClientProtocol {
@@ -413,6 +460,61 @@ class FakeAuthProvider: AuthProvider {
 
   func extractIdToken(from authResult: String) -> String {
     return "extracted: \(authResult)"
+  }
+
+  func refreshToken(from authResult: String) async throws -> String {
+    // In a real implementation, this would call the auth provider's refresh endpoint
+    return authResult
+  }
+}
+
+// Provider that doesn't override refreshToken - uses default implementation
+class FakeAuthProviderWithoutRefresh: AuthProvider {
+  static let CREDENTIALS = "creds_without_refresh"
+
+  func loginFromCache() async throws -> String {
+    return FakeAuthProviderWithoutRefresh.CREDENTIALS
+  }
+
+  func login() async throws -> String {
+    return FakeAuthProviderWithoutRefresh.CREDENTIALS
+  }
+
+  func logout() async throws {
+
+  }
+
+  func extractIdToken(from authResult: String) -> String {
+    return "extracted: \(authResult)"
+  }
+
+  // Note: refreshToken not implemented - will use default implementation that throws
+}
+
+// Provider that implements refresh with tracking
+class FakeRefreshableAuthProvider: AuthProvider {
+  static let CREDENTIALS = "initial_token"
+  var refreshCallCount = 0
+
+  func loginFromCache() async throws -> String {
+    return FakeRefreshableAuthProvider.CREDENTIALS
+  }
+
+  func login() async throws -> String {
+    return FakeRefreshableAuthProvider.CREDENTIALS
+  }
+
+  func logout() async throws {
+
+  }
+
+  func extractIdToken(from authResult: String) -> String {
+    return "extracted: \(authResult)"
+  }
+
+  func refreshToken(from authResult: String) async throws -> String {
+    refreshCallCount += 1
+    return "refreshed_token"
   }
 }
 

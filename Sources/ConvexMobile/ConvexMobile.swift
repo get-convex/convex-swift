@@ -5,6 +5,152 @@ import Combine
 import Foundation
 @_exported import UniFFI
 
+// MARK: - JWT Helper
+
+/// Helper struct to decode JWT tokens and extract expiration information
+private struct JWTDecoder {
+  /// Decodes a JWT token and returns the expiration date if available
+  static func extractExpiration(from token: String) -> Date? {
+    let segments = token.components(separatedBy: ".")
+    guard segments.count >= 2 else {
+      return nil
+    }
+
+    let payloadSegment = segments[1]
+    // Add padding if needed for base64 decoding
+    var base64 = payloadSegment
+      .replacingOccurrences(of: "-", with: "+")
+      .replacingOccurrences(of: "_", with: "/")
+
+    let paddingLength = (4 - base64.count % 4) % 4
+    base64 += String(repeating: "=", count: paddingLength)
+
+    guard let payloadData = Data(base64Encoded: base64),
+          let json = try? JSONSerialization.jsonObject(with: payloadData) as? [String: Any],
+          let exp = json["exp"] as? TimeInterval else {
+      return nil
+    }
+
+    return Date(timeIntervalSince1970: exp)
+  }
+}
+
+// MARK: - Token Refresh Manager
+
+/// Manages automatic token refresh for authenticated Convex clients.
+///
+/// This class monitors JWT token expiration and automatically refreshes tokens
+/// before they expire, preventing authentication errors.
+class TokenRefreshManager<T> {
+  private let authProvider: any AuthProvider<T>
+  private let onTokenRefreshed: (String) async throws -> Void
+  private let onRefreshFailed: (Error) -> Void
+  private var refreshTimer: AnyCancellable?
+  private var currentAuthData: T?
+  private let refreshLeewaySeconds: TimeInterval
+
+  /// Creates a new token refresh manager.
+  ///
+  /// - Parameters:
+  ///   - authProvider: The authentication provider to use for token refresh
+  ///   - refreshLeewaySeconds: How many seconds before expiration to refresh the token (default: 60)
+  ///   - onTokenRefreshed: Callback when a new token is available
+  ///   - onRefreshFailed: Callback when token refresh fails
+  init(
+    authProvider: any AuthProvider<T>,
+    refreshLeewaySeconds: TimeInterval = 60,
+    onTokenRefreshed: @escaping (String) async throws -> Void,
+    onRefreshFailed: @escaping (Error) -> Void
+  ) {
+    self.authProvider = authProvider
+    self.refreshLeewaySeconds = refreshLeewaySeconds
+    self.onTokenRefreshed = onTokenRefreshed
+    self.onRefreshFailed = onRefreshFailed
+  }
+
+  /// Starts monitoring the token for expiration and scheduling refresh.
+  ///
+  /// - Parameter authData: The current authentication data containing the token
+  func startMonitoring(authData: T) {
+    stopMonitoring()
+    currentAuthData = authData
+
+    let token = authProvider.extractIdToken(from: authData)
+    guard let expirationDate = JWTDecoder.extractExpiration(from: token) else {
+      #if DEBUG
+      print("[TokenRefresh] ⚠️ Cannot monitor token - no expiration date found")
+      #endif
+      return
+    }
+
+    let timeUntilExpiration = expirationDate.timeIntervalSinceNow
+    let timeUntilRefresh = max(0, timeUntilExpiration - refreshLeewaySeconds)
+
+    #if DEBUG
+    print("[TokenRefresh] Token expires in \(Int(timeUntilExpiration))s, will refresh in \(Int(timeUntilRefresh))s")
+    #endif
+
+    if timeUntilRefresh <= 0 {
+      // Token already expired or about to expire, refresh immediately
+      Task { [weak self] in
+        await self?.performRefresh()
+      }
+      return
+    }
+
+    // Use Timer instead of Task.sleep for reliability in iOS Simulator
+    refreshTimer = Timer.publish(every: timeUntilRefresh, on: .main, in: .common)
+      .autoconnect()
+      .first()
+      .sink { [weak self] _ in
+        Task {
+          await self?.performRefresh()
+        }
+      }
+  }
+
+  /// Stops monitoring and cancels any pending refresh.
+  func stopMonitoring() {
+    refreshTimer?.cancel()
+    refreshTimer = nil
+    currentAuthData = nil
+  }
+
+  private func performRefresh() async {
+    guard let authData = currentAuthData else {
+      return
+    }
+
+    do {
+      let newAuthData = try await authProvider.refreshToken(from: authData)
+      let newToken = authProvider.extractIdToken(from: newAuthData)
+
+      // Update the stored auth data
+      currentAuthData = newAuthData
+
+      // Notify the client about the new token
+      try await onTokenRefreshed(newToken)
+
+      #if DEBUG
+      print("[TokenRefresh] ✅ Token refreshed successfully")
+      #endif
+
+      // Schedule next refresh
+      startMonitoring(authData: newAuthData)
+    } catch AuthProviderError.refreshNotSupported {
+      // Provider doesn't support refresh - this is okay
+      #if DEBUG
+      print("[TokenRefresh] ℹ️ Provider doesn't support token refresh")
+      #endif
+    } catch {
+      #if DEBUG
+      print("[TokenRefresh] ❌ Token refresh failed: \(error)")
+      #endif
+      onRefreshFailed(error)
+    }
+  }
+}
+
 /// A client API for interacting with a Convex backend.
 ///
 /// Handles marshalling of data between calling code and the
@@ -166,6 +312,21 @@ public enum AuthState<T> {
   case loading
 }
 
+/// Errors that can occur during authentication operations.
+public enum AuthProviderError: Error {
+  /// The authentication provider does not support token refresh.
+  ///
+  /// This is thrown by the default implementation of ``AuthProvider/refreshToken(from:)``.
+  /// Providers that support token refresh should override this method.
+  case refreshNotSupported
+
+  /// The token has expired and cannot be refreshed.
+  case tokenExpired
+
+  /// Token refresh failed with an underlying error.
+  case refreshFailed(Error)
+}
+
 /// An authentication provider, used with ``ConvexClientWithAuth``.
 ///
 /// The generic type `T` is the data returned by the provider upon a successful authentication attempt.
@@ -181,6 +342,37 @@ public protocol AuthProvider<T> {
   /// Extracts a [JWT ID token](https://openid.net/specs/openid-connect-core-1_0.html#IDToken)
   /// from the `authResult`.
   func extractIdToken(from authResult: T) -> String
+  /// Refreshes the authentication data to obtain a new token.
+  ///
+  /// This method is called automatically by the client when the current token is about to expire.
+  /// The default implementation throws ``AuthProviderError/refreshNotSupported``.
+  ///
+  /// Override this method if your authentication provider supports token refresh.
+  ///
+  /// - Parameter authResult: The current authentication data.
+  /// - Returns: New authentication data with a fresh token.
+  /// - Throws: ``AuthProviderError/refreshNotSupported`` by default, or other errors during refresh.
+  func refreshToken(from authResult: T) async throws -> T
+}
+
+/// Default implementation of ``AuthProvider`` optional methods.
+extension AuthProvider {
+  /// Default implementation that throws ``AuthProviderError/refreshNotSupported``.
+  ///
+  /// Override this method in your AuthProvider implementation to enable automatic token refresh.
+  ///
+  /// Example:
+  /// ```swift
+  /// extension MyAuthProvider {
+  ///   public func refreshToken(from authResult: Credentials) async throws -> Credentials {
+  ///     // Call your refresh endpoint
+  ///     return try await myAPI.refreshToken(authResult.refreshToken)
+  ///   }
+  /// }
+  /// ```
+  public func refreshToken(from authResult: T) async throws -> T {
+    throw AuthProviderError.refreshNotSupported
+  }
 }
 
 /// Like ``ConvexClient``, but supports integration with an authentication provider via ``AuthProvider``.
@@ -190,6 +382,7 @@ public protocol AuthProvider<T> {
 public class ConvexClientWithAuth<T>: ConvexClient {
   private let authPublisher = CurrentValueSubject<AuthState<T>, Never>(AuthState.unauthenticated)
   private let authProvider: any AuthProvider<T>
+  private var tokenRefreshManager: TokenRefreshManager<T>?
 
   /// A publisher that updates with the current ``AuthState`` of this client instance.
   public let authState: AnyPublisher<AuthState<T>, Never>
@@ -203,12 +396,35 @@ public class ConvexClientWithAuth<T>: ConvexClient {
     self.authProvider = authProvider
     self.authState = authPublisher.eraseToAnyPublisher()
     super.init(deploymentUrl: deploymentUrl)
+    setupTokenRefreshManager()
   }
 
   init(ffiClient: MobileConvexClientProtocol, authProvider: any AuthProvider<T>) {
     self.authProvider = authProvider
     self.authState = authPublisher.eraseToAnyPublisher()
     super.init(ffiClient: ffiClient)
+    setupTokenRefreshManager()
+  }
+
+  private func setupTokenRefreshManager() {
+    tokenRefreshManager = TokenRefreshManager(
+      authProvider: authProvider,
+      refreshLeewaySeconds: 60,
+      onTokenRefreshed: { [weak self] newToken in
+        guard let self = self else { return }
+        try await self.ffiClient.setAuth(token: newToken)
+      },
+      onRefreshFailed: { [weak self] error in
+        guard let self = self else { return }
+        #if DEBUG
+        print("[TokenRefresh] ❌ Token refresh failed, logging out user: \(error)")
+        #endif
+        // Token refresh failed, log the user out
+        Task {
+          await self.logout()
+        }
+      }
+    )
   }
 
   /// Triggers a UI driven login flow and updates the ``authState``.
@@ -238,11 +454,25 @@ public class ConvexClientWithAuth<T>: ConvexClient {
   ///
   /// The ``authState`` will change to ``AuthState.unauthenticated`` if logout is successful.
   public func logout() async {
+    #if DEBUG
+    print("[ConvexClient] 🚪 Logging out...")
+    #endif
+
+    // Stop token refresh monitoring
+    tokenRefreshManager?.stopMonitoring()
+
     do {
       try await authProvider.logout()
       try await ffiClient.setAuth(token: nil)
       authPublisher.send(AuthState.unauthenticated)
+
+      #if DEBUG
+      print("[ConvexClient] ✅ Logout successful")
+      #endif
     } catch {
+      #if DEBUG
+      print("[ConvexClient] ❌ Logout failed: \(error)")
+      #endif
       dump(error)
     }
   }
@@ -251,7 +481,20 @@ public class ConvexClientWithAuth<T>: ConvexClient {
     authPublisher.send(AuthState.loading)
     do {
       let authData = try await strategy()
+
+      #if DEBUG
+      print("[ConvexClient] 🔐 Login successful, setting auth...")
+      #endif
+
       try await ffiClient.setAuth(token: authProvider.extractIdToken(from: authData))
+
+      #if DEBUG
+      print("[ConvexClient] 🚀 Starting automatic token refresh monitoring...")
+      #endif
+
+      // Start monitoring token expiration for automatic refresh
+      tokenRefreshManager?.startMonitoring(authData: authData)
+
       authPublisher.send(AuthState.authenticated(authData))
       return Result.success(authData)
     } catch {
