@@ -3,6 +3,7 @@
 
 import Combine
 import Foundation
+import Network
 @_exported import UniFFI
 
 // MARK: - JWT Helper
@@ -32,6 +33,63 @@ private struct JWTDecoder {
     }
 
     return Date(timeIntervalSince1970: exp)
+  }
+}
+
+// MARK: - Network Monitor
+
+/// Monitors network connectivity changes and triggers reconnection when network becomes available.
+@available(iOS 13.0, macOS 10.15, *)
+class NetworkMonitor {
+  private let monitor: NWPathMonitor
+  private let queue: DispatchQueue
+  private var isMonitoring = false
+  private var wasConnected = false
+  private let onReconnect: () -> Void
+
+  init(onReconnect: @escaping () -> Void) {
+    self.onReconnect = onReconnect
+    self.monitor = NWPathMonitor()
+    self.queue = DispatchQueue(label: "dev.convex.networkmonitor")
+  }
+
+  func startMonitoring() {
+    guard !isMonitoring else { return }
+
+    isMonitoring = true
+    wasConnected = false
+
+    monitor.pathUpdateHandler = { [weak self] path in
+      guard let self = self else { return }
+
+      let isConnected = path.status == .satisfied
+
+      #if DEBUG
+      print("[NetworkMonitor] Network status changed: \(path.status), was connected: \(self.wasConnected)")
+      #endif
+
+      // Trigger reconnect only when transitioning from disconnected to connected
+      if isConnected && !self.wasConnected {
+        #if DEBUG
+        print("[NetworkMonitor] 🔄 Network reconnected, triggering resubscribe...")
+        #endif
+        self.onReconnect()
+      }
+
+      self.wasConnected = isConnected
+    }
+
+    monitor.start(queue: queue)
+  }
+
+  func stopMonitoring() {
+    guard isMonitoring else { return }
+    monitor.cancel()
+    isMonitoring = false
+  }
+
+  deinit {
+    stopMonitoring()
   }
 }
 
@@ -151,6 +209,15 @@ class TokenRefreshManager<T> {
   }
 }
 
+// MARK: - Subscription Tracking
+
+/// Internal structure to track active subscriptions for automatic reconnection.
+private struct SubscriptionInfo {
+  let name: String
+  let args: [String: ConvexEncodable?]?
+  weak var adapter: AnyObject?  // Reference to SubscriptionAdapter
+}
+
 /// A client API for interacting with a Convex backend.
 ///
 /// Handles marshalling of data between calling code and the
@@ -162,6 +229,13 @@ class TokenRefreshManager<T> {
 public class ConvexClient {
   let ffiClient: UniFFI.MobileConvexClientProtocol
 
+  // Subscription tracking for automatic reconnection
+  private var activeSubscriptions: [UUID: SubscriptionInfo] = [:]
+  private let subscriptionsLock = NSLock()
+
+  // Network monitoring
+  private var networkMonitor: Any?  // NetworkMonitor, stored as Any for iOS 11 compatibility
+
   /// Creates a new instance of ``ConvexClient``.
   ///
   /// - Parameters:
@@ -169,10 +243,28 @@ public class ConvexClient {
   public init(deploymentUrl: String) {
     self.ffiClient = UniFFI.MobileConvexClient(
       deploymentUrl: deploymentUrl, clientId: "swift-\(convexMobileVersion)")
+    setupNetworkMonitoring()
   }
 
   init(ffiClient: UniFFI.MobileConvexClientProtocol) {
     self.ffiClient = ffiClient
+    // Don't setup network monitoring for test clients
+  }
+
+  private func setupNetworkMonitoring() {
+    if #available(iOS 13.0, macOS 10.15, *) {
+      let monitor = NetworkMonitor { [weak self] in
+        self?.resubscribeAll()
+      }
+      monitor.startMonitoring()
+      self.networkMonitor = monitor
+    }
+  }
+
+  deinit {
+    if #available(iOS 13.0, macOS 10.15, *) {
+      (networkMonitor as? NetworkMonitor)?.stopMonitoring()
+    }
   }
 
   /// Subscribes to the query with the given `name` and converts data from the subscription into an
@@ -194,9 +286,21 @@ public class ConvexClient {
     // 2. Feed the subscription handle into the Convex data Publisher so it can cancel the upstream
     //    subscription when downstream subscribers are done consuming data
 
+    // Generate unique ID for this subscription
+    let subscriptionId = UUID()
+
     // This Publisher will ultimated publish the data received from Convex.
     let convexPublisher = PassthroughSubject<T, ClientError>()
     let adapter = SubscriptionAdapter<T>(publisher: convexPublisher)
+
+    // Track this subscription for automatic reconnection
+    subscriptionsLock.lock()
+    activeSubscriptions[subscriptionId] = SubscriptionInfo(
+      name: name,
+      args: args,
+      adapter: adapter
+    )
+    subscriptionsLock.unlock()
 
     // This Publisher is responsible for initializing the Convex subscription and returning a handle
     // to the upstream (Convex) subscription.
@@ -220,11 +324,96 @@ public class ConvexClient {
     // the data publisher so it can cancel the upstream subscription when consumers are no longer
     // listening for data.
     return initializationPublisher.flatMap({ subscriptionHandle in
-      convexPublisher.handleEvents(receiveCancel: {
-        subscriptionHandle.cancel()
-      })
+      convexPublisher.handleEvents(
+        receiveCancel: {
+          subscriptionHandle.cancel()
+          // Remove from tracked subscriptions when canceled
+          self.subscriptionsLock.lock()
+          self.activeSubscriptions.removeValue(forKey: subscriptionId)
+          self.subscriptionsLock.unlock()
+        })
     })
     .eraseToAnyPublisher()
+  }
+
+  /// Manually reconnects all active subscriptions.
+  ///
+  /// This method forces reconnection of all active subscriptions. The client automatically
+  /// monitors network connectivity and reconnects subscriptions when the network is restored,
+  /// so manual reconnection is typically not needed.
+  ///
+  /// ## When to Use
+  ///
+  /// - When your app returns from background (`applicationWillEnterForeground`)
+  /// - After detecting custom network state changes
+  /// - For testing reconnection behavior
+  /// - On platforms older than iOS 13.0/macOS 10.15 where automatic monitoring is unavailable
+  ///
+  /// ## Example
+  ///
+  /// ```swift
+  /// NotificationCenter.default.addObserver(
+  ///   forName: UIApplication.willEnterForegroundNotification,
+  ///   object: nil,
+  ///   queue: .main
+  /// ) { _ in
+  ///   client.reconnect()
+  /// }
+  /// ```
+  ///
+  /// - Note: This method is safe to call at any time and will only reconnect active subscriptions.
+  public func reconnect() {
+    resubscribeAll()
+  }
+
+  /// Internal method to resubscribe all active subscriptions.
+  ///
+  /// This is called automatically by the NetworkMonitor when network connectivity is restored,
+  /// or can be triggered manually via the public `reconnect()` method.
+  private func resubscribeAll() {
+    subscriptionsLock.lock()
+    let subscriptionsToReconnect = activeSubscriptions
+    subscriptionsLock.unlock()
+
+    guard !subscriptionsToReconnect.isEmpty else {
+      return
+    }
+
+    #if DEBUG
+    print("[ConvexClient] 🔄 Resubscribing \(subscriptionsToReconnect.count) subscription(s)...")
+    #endif
+
+    for (id, info) in subscriptionsToReconnect {
+      // Check if adapter is still alive
+      guard let adapter = info.adapter else {
+        // Remove dead subscriptions
+        subscriptionsLock.lock()
+        activeSubscriptions.removeValue(forKey: id)
+        subscriptionsLock.unlock()
+        continue
+      }
+
+      // Resubscribe
+      Task {
+        do {
+          _ = try await self.ffiClient.subscribe(
+            name: info.name,
+            args: info.args?.mapValues({ v in
+              try v?.convexEncode() ?? "null"
+            }) ?? [:],
+            subscriber: adapter as! any QuerySubscriber
+          )
+
+          #if DEBUG
+          print("[ConvexClient] ✅ Resubscribed to \(info.name)")
+          #endif
+        } catch {
+          #if DEBUG
+          print("[ConvexClient] ❌ Failed to resubscribe to \(info.name): \(error)")
+          #endif
+        }
+      }
+    }
   }
 
   /// Executes the mutation with the given `name` and `args` and returns the result.

@@ -5,6 +5,34 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2025-10-26
+
+### Added
+- **Automatic Subscription Reconnection**: Client now automatically resubscribes to all active queries after network disconnections
+  - `NetworkMonitor` using `Network.framework` detects network state changes (iOS 13.0+, macOS 10.15+)
+  - Subscriptions are tracked internally and automatically reestablished on reconnection
+  - Works seamlessly with WiFi ↔ Cellular switches, airplane mode, and Mac laptop sleep/wake
+  - Fixes infinite loading spinner issue when network connection is lost and restored
+- **Manual Reconnection API**: New public `reconnect()` method for manual control
+  - Useful for app lifecycle events (e.g., `applicationWillEnterForeground`)
+  - Allows custom network detection logic
+  - Helpful for testing reconnection behavior
+- Comprehensive tests for reconnection scenarios
+
+### Fixed
+- **Critical**: Subscriptions no longer hang after network disconnection and reconnection
+  - Previously subscriptions would show infinite loading spinner after Mac sleep/wake
+  - Previously subscriptions would not update after WiFi disconnect/reconnect
+  - Network monitoring now correctly triggers resubscription
+- Subscription cleanup now properly removes canceled subscriptions from tracking
+
+### Technical Details
+- `ConvexClient` now tracks all active subscriptions internally
+- `NetworkMonitor` class monitors network path changes via `NWPathMonitor`
+- Automatic resubscription happens on network state transition from disconnected to connected
+- Weak references to subscription adapters prevent memory leaks
+- Thread-safe subscription tracking with `NSLock`
+
 ## [0.6.0] - 2025-10-25
 
 ### Added

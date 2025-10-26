@@ -82,6 +82,34 @@ extension MyAuthProvider {
 
 If your `AuthProvider` doesn't implement `refreshToken(from:)`, the app will continue to work normally. Tokens will eventually expire, requiring the user to log in again. This is handled by the default implementation that throws `AuthProviderError.refreshNotSupported`.
 
+## Automatic Reconnection
+
+The client automatically handles network disconnections and reconnections, ensuring your subscriptions continue to work seamlessly.
+
+### How It Works
+
+- **Network Monitoring**: The client uses iOS `Network.framework` to monitor network connectivity changes
+- **Automatic Resubscription**: When network connectivity is restored, all active subscriptions are automatically reestablished
+- **Background Resilience**: Works across app lifecycle events like backgrounding, Mac laptop closing, WiFi/Cellular switching
+
+### Manual Reconnection
+
+For edge cases or to force reconnection, you can manually trigger reconnection:
+
+```swift
+// After detecting the app returned from background
+client.reconnect()
+```
+
+This is useful in scenarios like:
+- App returning from background (`applicationWillEnterForeground`)
+- Custom network detection logic
+- Testing reconnection behavior
+
+### Requirements
+
+- **iOS 13.0+** or **macOS 10.15+** for automatic network monitoring
+- On older platforms, use manual `reconnect()` calls when needed
 
 ## Building
 

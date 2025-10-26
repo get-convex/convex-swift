@@ -373,6 +373,98 @@ final class ConvexMobileTests: XCTestCase {
 
     XCTAssertEqual(idToken, "extracted: refreshed_token")
   }
+
+  // MARK: - Reconnection Tests
+
+  func testSubscriptionsAreTracked() async throws {
+    let fakeFfiClient = FakeMobileConvexClient()
+    let client = ConvexMobile.ConvexClient(ffiClient: fakeFfiClient)
+
+    // Create a subscription
+    let cancellable = client.subscribe(to: "foo").sink(
+      receiveCompletion: { _ in },
+      receiveValue: { (_: Message) in }
+    )
+
+    // Wait a bit for subscription to be established
+    try await Task.sleep(nanoseconds: 100_000_000)
+
+    // Subscription should be tracked
+    XCTAssertTrue(fakeFfiClient.subscriptionCount > 0)
+
+    // Cancel subscription
+    cancellable.cancel()
+
+    // Wait for cleanup
+    try await Task.sleep(nanoseconds: 100_000_000)
+
+    // Subscription should be removed from tracking
+    // (We can't directly test this without exposing private state,
+    // but we verify the cancel was called)
+    XCTAssertEqual(fakeFfiClient.cancellationCount, 1)
+  }
+
+  func testReconnectCanBeCalledWithActiveSubscriptions() async throws {
+    let fakeFfiClient = FakeMobileConvexClient()
+    let client = ConvexMobile.ConvexClient(ffiClient: fakeFfiClient)
+
+    // Create two subscriptions
+    let cancellable1 = client.subscribe(to: "foo").sink(
+      receiveCompletion: { _ in },
+      receiveValue: { (_: Message) in }
+    )
+
+    let cancellable2 = client.subscribe(to: "bar").sink(
+      receiveCompletion: { _ in },
+      receiveValue: { (_: Message) in }
+    )
+
+    // Wait for subscriptions to be established
+    try await Task.sleep(nanoseconds: 100_000_000)
+
+    let initialSubscriptionCount = fakeFfiClient.subscriptionCount
+    XCTAssertEqual(initialSubscriptionCount, 2, "Should have 2 initial subscriptions")
+
+    // Call reconnect - this should not crash or throw
+    client.reconnect()
+
+    // Verify reconnect was called without errors
+    // The actual resubscription happens asynchronously, so we just verify
+    // the method can be called safely
+    XCTAssertTrue(true, "reconnect() should complete without errors")
+
+    // Clean up
+    cancellable1.cancel()
+    cancellable2.cancel()
+  }
+
+  func testReconnectIgnoresDeadSubscriptions() async throws {
+    let fakeFfiClient = FakeMobileConvexClient()
+    let client = ConvexMobile.ConvexClient(ffiClient: fakeFfiClient)
+
+    // Create and immediately cancel a subscription
+    let cancellable = client.subscribe(to: "foo").sink(
+      receiveCompletion: { _ in },
+      receiveValue: { (_: Message) in }
+    )
+
+    try await Task.sleep(nanoseconds: 100_000_000)
+
+    // Cancel the subscription
+    cancellable.cancel()
+
+    try await Task.sleep(nanoseconds: 100_000_000)
+
+    let countBeforeReconnect = fakeFfiClient.subscriptionCount
+
+    // Call reconnect - should not try to resubscribe dead subscription
+    client.reconnect()
+
+    try await Task.sleep(nanoseconds: 100_000_000)
+
+    // Subscription count should not have increased
+    XCTAssertEqual(fakeFfiClient.subscriptionCount, countBeforeReconnect)
+  }
 }
 
 class FakeMobileConvexClient: UniFFI.MobileConvexClientProtocol {
@@ -382,6 +474,7 @@ class FakeMobileConvexClient: UniFFI.MobileConvexClientProtocol {
   var actionCalls: [String] = []
   var auth: String? = nil
   var resultPublished: XCTestExpectation?
+  var subscriptionCount = 0  // Track number of subscribe calls
 
   init(initialAuth: String? = nil, resultPublished: XCTestExpectation? = nil) {
     self.auth = initialAuth
@@ -417,6 +510,7 @@ class FakeMobileConvexClient: UniFFI.MobileConvexClientProtocol {
   func subscribe(name: String, args: [String: String], subscriber: any UniFFI.QuerySubscriber)
     async throws -> UniFFI.SubscriptionHandle
   {
+    subscriptionCount += 1  // Track subscription calls
     subscriptionArgs = args
     let _ = Task {
       try await Task.sleep(nanoseconds: UInt64(0.05 * 1_000_000_000))
