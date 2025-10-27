@@ -528,32 +528,30 @@ public class ConvexClientWithAuth<T>: ConvexClient {
       onRefreshFailed: { [weak self] error in
         guard let self = self else { return }
 
-        // Check if app is in background
-        #if canImport(UIKit)
-        let isBackground = await MainActor.run {
-          UIApplication.shared.applicationState == .background
-        }
-        #else
-        let isBackground = false
-        #endif
-
-        #if DEBUG
-        print("[TokenRefresh] ❌ Token refresh failed (background: \(isBackground)): \(error)")
-        #endif
-
-        // Don't logout if app is in background - iOS suspends network requests
-        // We'll retry when app comes back to foreground
-        if isBackground {
-          #if DEBUG
-          print("[TokenRefresh] ⚠️ App is in background - keeping credentials for foreground retry")
+        // Check if app is in background - must be sync so we check on main thread
+        Task { @MainActor in
+          #if canImport(UIKit)
+          let isBackground = UIApplication.shared.applicationState == .background
+          #else
+          let isBackground = false
           #endif
-          return
-        } else {
-          // Only logout if in foreground (user is actively using the app)
+
           #if DEBUG
-          print("[TokenRefresh] 🚪 App is in foreground - logging out user")
+          print("[TokenRefresh] ❌ Token refresh failed (background: \(isBackground)): \(error)")
           #endif
-          Task {
+
+          // Don't logout if app is in background - iOS suspends network requests
+          // We'll retry when app comes back to foreground
+          if isBackground {
+            #if DEBUG
+            print("[TokenRefresh] ⚠️ App is in background - keeping credentials for foreground retry")
+            #endif
+            return
+          } else {
+            // Only logout if in foreground (user is actively using the app)
+            #if DEBUG
+            print("[TokenRefresh] 🚪 App is in foreground - logging out user")
+            #endif
             await self.logout()
           }
         }
@@ -566,24 +564,58 @@ public class ConvexClientWithAuth<T>: ConvexClient {
     #if canImport(UIKit)
     foregroundObserver = NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)
       .sink { [weak self] _ in
-        Task { @MainActor [weak self] in
-          guard let self = self else { return }
+        guard let self = self else { return }
 
-          // Check if we have authenticated credentials
-          guard case .authenticated(let authData) = try? await self.authState.first().get() else {
+        Task { @MainActor in
+          // Get current auth state from the publisher
+          var cancellable: AnyCancellable?
+          let semaphore = DispatchSemaphore(value: 0)
+          var capturedState: AuthState<T>?
+
+          cancellable = self.authState.sink { state in
+            capturedState = state
+            semaphore.signal()
+            cancellable?.cancel()
+          }
+
+          semaphore.wait()
+
+          guard case .authenticated = capturedState else {
             return
           }
 
-          // Check if token needs refresh
-          let token = self.authProvider.extractIdToken(from: authData)
-          if let expirationDate = JWTDecoder.extractExpiration(from: token),
-             Date().addingTimeInterval(60) >= expirationDate {
-            #if DEBUG
-            print("[TokenRefresh] 🔄 App entering foreground with expired token - triggering refresh")
-            #endif
+          // IMPORTANT: Load fresh credentials from provider (e.g., keychain)
+          // Don't use authData from memory - it may be stale if token was refreshed in background
+          #if DEBUG
+          print("[TokenRefresh] 🔄 App entering foreground - checking for fresh credentials")
+          #endif
 
-            // Re-start monitoring which will trigger immediate refresh if needed
-            self.tokenRefreshManager?.startMonitoring(authData: authData)
+          do {
+            // Try to get fresh credentials from cache (keychain)
+            let freshAuthData = try await self.authProvider.loginFromCache()
+
+            // Check if token needs refresh
+            let token = self.authProvider.extractIdToken(from: freshAuthData)
+            if let expirationDate = JWTDecoder.extractExpiration(from: token),
+               Date().addingTimeInterval(60) >= expirationDate {
+              #if DEBUG
+              print("[TokenRefresh] 🔄 Token expired/expiring - triggering refresh")
+              #endif
+
+              // IMPORTANT: Stop any existing refresh timer first to prevent race condition
+              self.tokenRefreshManager?.stopMonitoring()
+
+              // Re-start monitoring which will trigger immediate refresh if needed
+              self.tokenRefreshManager?.startMonitoring(authData: freshAuthData)
+            } else {
+              #if DEBUG
+              print("[TokenRefresh] ✅ Token still valid, no refresh needed")
+              #endif
+            }
+          } catch {
+            #if DEBUG
+            print("[TokenRefresh] ⚠️ Could not load fresh credentials from cache: \(error)")
+            #endif
           }
         }
       }
