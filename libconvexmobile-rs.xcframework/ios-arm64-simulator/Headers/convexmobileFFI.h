@@ -354,6 +354,12 @@ void uniffi_convexmobile_fn_free_subscriptionhandle(void*_Nonnull ptr, RustCallS
 void uniffi_convexmobile_fn_method_subscriptionhandle_cancel(void*_Nonnull ptr, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_CONVEXMOBILE_FN_FUNC_INIT_CONVEX_LOGGING
+#define UNIFFI_FFIDEF_UNIFFI_CONVEXMOBILE_FN_FUNC_INIT_CONVEX_LOGGING
+void uniffi_convexmobile_fn_func_init_convex_logging(RustCallStatus *_Nonnull out_status
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_FFI_CONVEXMOBILE_RUSTBUFFER_ALLOC
 #define UNIFFI_FFIDEF_FFI_CONVEXMOBILE_RUSTBUFFER_ALLOC
 RustBuffer ffi_convexmobile_rustbuffer_alloc(uint64_t size, RustCallStatus *_Nonnull out_status
@@ -632,6 +638,12 @@ void ffi_convexmobile_rust_future_free_void(uint64_t handle
 #ifndef UNIFFI_FFIDEF_FFI_CONVEXMOBILE_RUST_FUTURE_COMPLETE_VOID
 #define UNIFFI_FFIDEF_FFI_CONVEXMOBILE_RUST_FUTURE_COMPLETE_VOID
 void ffi_convexmobile_rust_future_complete_void(uint64_t handle, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_CONVEXMOBILE_CHECKSUM_FUNC_INIT_CONVEX_LOGGING
+#define UNIFFI_FFIDEF_UNIFFI_CONVEXMOBILE_CHECKSUM_FUNC_INIT_CONVEX_LOGGING
+uint16_t uniffi_convexmobile_checksum_func_init_convex_logging(void
+    
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_CONVEXMOBILE_CHECKSUM_METHOD_MOBILECONVEXCLIENT_ACTION

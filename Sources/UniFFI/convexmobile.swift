@@ -1078,6 +1078,13 @@ private func uniffiFutureContinuationCallback(handle: UInt64, pollResult: Int8) 
     print("uniffiFutureContinuationCallback invalid handle")
   }
 }
+public func initConvexLogging() {
+  try! rustCall {
+    uniffi_convexmobile_fn_func_init_convex_logging(
+      $0
+    )
+  }
+}
 
 private enum InitializationResult {
   case ok
@@ -1093,6 +1100,9 @@ private var initializationResult: InitializationResult = {
   let scaffolding_contract_version = ffi_convexmobile_uniffi_contract_version()
   if bindings_contract_version != scaffolding_contract_version {
     return InitializationResult.contractVersionMismatch
+  }
+  if uniffi_convexmobile_checksum_func_init_convex_logging() != 16099 {
+    return InitializationResult.apiChecksumMismatch
   }
   if uniffi_convexmobile_checksum_method_mobileconvexclient_action() != 2118 {
     return InitializationResult.apiChecksumMismatch
