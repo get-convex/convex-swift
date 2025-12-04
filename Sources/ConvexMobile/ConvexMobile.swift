@@ -15,6 +15,7 @@ import Foundation
 /// Convex backend.
 public class ConvexClient {
   let ffiClient: UniFFI.MobileConvexClientProtocol
+  fileprivate let webSocketStateAdapter = WebSocketStateAdapter()
 
   /// Creates a new instance of ``ConvexClient``.
   ///
@@ -22,7 +23,7 @@ public class ConvexClient {
   ///   - deploymentUrl: The Convex backend URL to connect to; find it in the [dashboard](https://dashboard.convex.dev) Settings for your project
   public init(deploymentUrl: String) {
     self.ffiClient = UniFFI.MobileConvexClient(
-      deploymentUrl: deploymentUrl, clientId: "swift-\(convexMobileVersion)")
+      deploymentUrl: deploymentUrl, clientId: "swift-\(convexMobileVersion)", webSocketStateSubscriber: webSocketStateAdapter)
   }
 
   init(ffiClient: UniFFI.MobileConvexClientProtocol) {
@@ -48,7 +49,7 @@ public class ConvexClient {
     // 2. Feed the subscription handle into the Convex data Publisher so it can cancel the upstream
     //    subscription when downstream subscribers are done consuming data
 
-    // This Publisher will ultimated publish the data received from Convex.
+    // This Publisher will ultimately publish the data received from Convex.
     let convexPublisher = PassthroughSubject<T, ClientError>()
     let adapter = SubscriptionAdapter<T>(publisher: convexPublisher)
 
@@ -151,6 +152,10 @@ public class ConvexClient {
   }
 
   typealias RemoteCall = (String, [String: String]) async throws -> String
+  
+  public func watchWebSocketState() -> AnyPublisher<WebSocketState, Never> {
+    return webSocketStateAdapter.newPublisher()
+  }
 }
 
 /// Authentication states that can be experienced when using an ``AuthProvider`` with
@@ -287,5 +292,18 @@ private class SubscriptionAdapter<T: Decodable>: QuerySubscriber {
   func onUpdate(value: String) {
     publisher.send(try! JSONDecoder().decode(Publisher.Output.self, from: Data(value.utf8)))
   }
+}
 
+private class WebSocketStateAdapter: WebSocketStateSubscriber {
+  private let subject = PassthroughSubject<WebSocketState, Never>()
+  
+  init() { }
+
+  func onStateChange(state: UniFFI.WebSocketState) {
+    subject.send(state)
+  }
+  
+  func newPublisher() -> AnyPublisher<WebSocketState, Never> {
+    return subject.eraseToAnyPublisher()
+  }
 }

@@ -158,6 +158,25 @@ private let deploymentUrl = "https://curious-lynx-309.convex.cloud"
       "messages:echoArgs", with: ["aNullableDouble": nil])
     #expect(result == NullableFloats())
   }
+  
+  @Test func can_observe_websocket_state() async throws {
+    let client = ConvexClient(deploymentUrl: deploymentUrl)
+
+    let publisher = client.watchWebSocketState()
+      
+    var states: [WebSocketState] = []
+    let receiveTask = Task {
+      for await state in publisher.prefix(2).values {
+        states.append(state)
+      }
+    }
+    
+    try await client.mutation("messages:clearAll")
+
+    await receiveTask.value
+    
+    #expect(states == [.connecting, .connected])
+  }
 }
 
 private struct Message: Decodable, Equatable {
