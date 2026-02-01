@@ -265,6 +265,13 @@ typedef void (*UniffiCallbackInterfaceQuerySubscriberMethod1)(uint64_t, RustBuff
     );
 
 #endif
+#ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_WEB_SOCKET_STATE_SUBSCRIBER_METHOD0
+#define UNIFFI_FFIDEF_CALLBACK_INTERFACE_WEB_SOCKET_STATE_SUBSCRIBER_METHOD0
+typedef void (*UniffiCallbackInterfaceWebSocketStateSubscriberMethod0)(uint64_t, RustBuffer, void* _Nonnull, 
+        RustCallStatus *_Nonnull uniffiCallStatus
+    );
+
+#endif
 #ifndef UNIFFI_FFIDEF_V_TABLE_CALLBACK_INTERFACE_QUERY_SUBSCRIBER
 #define UNIFFI_FFIDEF_V_TABLE_CALLBACK_INTERFACE_QUERY_SUBSCRIBER
 typedef struct UniffiVTableCallbackInterfaceQuerySubscriber {
@@ -272,6 +279,14 @@ typedef struct UniffiVTableCallbackInterfaceQuerySubscriber {
     UniffiCallbackInterfaceQuerySubscriberMethod1 _Nonnull onUpdate;
     UniffiCallbackInterfaceFree _Nonnull uniffiFree;
 } UniffiVTableCallbackInterfaceQuerySubscriber;
+
+#endif
+#ifndef UNIFFI_FFIDEF_V_TABLE_CALLBACK_INTERFACE_WEB_SOCKET_STATE_SUBSCRIBER
+#define UNIFFI_FFIDEF_V_TABLE_CALLBACK_INTERFACE_WEB_SOCKET_STATE_SUBSCRIBER
+typedef struct UniffiVTableCallbackInterfaceWebSocketStateSubscriber {
+    UniffiCallbackInterfaceWebSocketStateSubscriberMethod0 _Nonnull onStateChange;
+    UniffiCallbackInterfaceFree _Nonnull uniffiFree;
+} UniffiVTableCallbackInterfaceWebSocketStateSubscriber;
 
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_CONVEXMOBILE_FN_CLONE_MOBILECONVEXCLIENT
@@ -286,7 +301,7 @@ void uniffi_convexmobile_fn_free_mobileconvexclient(void*_Nonnull ptr, RustCallS
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_CONVEXMOBILE_FN_CONSTRUCTOR_MOBILECONVEXCLIENT_NEW
 #define UNIFFI_FFIDEF_UNIFFI_CONVEXMOBILE_FN_CONSTRUCTOR_MOBILECONVEXCLIENT_NEW
-void*_Nonnull uniffi_convexmobile_fn_constructor_mobileconvexclient_new(RustBuffer deployment_url, RustBuffer client_id, RustCallStatus *_Nonnull out_status
+void*_Nonnull uniffi_convexmobile_fn_constructor_mobileconvexclient_new(RustBuffer deployment_url, RustBuffer client_id, RustBuffer web_socket_state_subscriber, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_CONVEXMOBILE_FN_METHOD_MOBILECONVEXCLIENT_ACTION
@@ -352,6 +367,32 @@ void uniffi_convexmobile_fn_free_subscriptionhandle(void*_Nonnull ptr, RustCallS
 #ifndef UNIFFI_FFIDEF_UNIFFI_CONVEXMOBILE_FN_METHOD_SUBSCRIPTIONHANDLE_CANCEL
 #define UNIFFI_FFIDEF_UNIFFI_CONVEXMOBILE_FN_METHOD_SUBSCRIPTIONHANDLE_CANCEL
 void uniffi_convexmobile_fn_method_subscriptionhandle_cancel(void*_Nonnull ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_CONVEXMOBILE_FN_CLONE_WEBSOCKETSTATESUBSCRIBER
+#define UNIFFI_FFIDEF_UNIFFI_CONVEXMOBILE_FN_CLONE_WEBSOCKETSTATESUBSCRIBER
+void*_Nonnull uniffi_convexmobile_fn_clone_websocketstatesubscriber(void*_Nonnull ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_CONVEXMOBILE_FN_FREE_WEBSOCKETSTATESUBSCRIBER
+#define UNIFFI_FFIDEF_UNIFFI_CONVEXMOBILE_FN_FREE_WEBSOCKETSTATESUBSCRIBER
+void uniffi_convexmobile_fn_free_websocketstatesubscriber(void*_Nonnull ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_CONVEXMOBILE_FN_INIT_CALLBACK_VTABLE_WEBSOCKETSTATESUBSCRIBER
+#define UNIFFI_FFIDEF_UNIFFI_CONVEXMOBILE_FN_INIT_CALLBACK_VTABLE_WEBSOCKETSTATESUBSCRIBER
+void uniffi_convexmobile_fn_init_callback_vtable_websocketstatesubscriber(UniffiVTableCallbackInterfaceWebSocketStateSubscriber* _Nonnull vtable
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_CONVEXMOBILE_FN_METHOD_WEBSOCKETSTATESUBSCRIBER_ON_STATE_CHANGE
+#define UNIFFI_FFIDEF_UNIFFI_CONVEXMOBILE_FN_METHOD_WEBSOCKETSTATESUBSCRIBER_ON_STATE_CHANGE
+void uniffi_convexmobile_fn_method_websocketstatesubscriber_on_state_change(void*_Nonnull ptr, RustBuffer state, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_CONVEXMOBILE_FN_FUNC_INIT_CONVEX_LOGGING
+#define UNIFFI_FFIDEF_UNIFFI_CONVEXMOBILE_FN_FUNC_INIT_CONVEX_LOGGING
+void uniffi_convexmobile_fn_func_init_convex_logging(RustCallStatus *_Nonnull out_status
+    
 );
 #endif
 #ifndef UNIFFI_FFIDEF_FFI_CONVEXMOBILE_RUSTBUFFER_ALLOC
@@ -634,6 +675,12 @@ void ffi_convexmobile_rust_future_free_void(uint64_t handle
 void ffi_convexmobile_rust_future_complete_void(uint64_t handle, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_CONVEXMOBILE_CHECKSUM_FUNC_INIT_CONVEX_LOGGING
+#define UNIFFI_FFIDEF_UNIFFI_CONVEXMOBILE_CHECKSUM_FUNC_INIT_CONVEX_LOGGING
+uint16_t uniffi_convexmobile_checksum_func_init_convex_logging(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_CONVEXMOBILE_CHECKSUM_METHOD_MOBILECONVEXCLIENT_ACTION
 #define UNIFFI_FFIDEF_UNIFFI_CONVEXMOBILE_CHECKSUM_METHOD_MOBILECONVEXCLIENT_ACTION
 uint16_t uniffi_convexmobile_checksum_method_mobileconvexclient_action(void
@@ -679,6 +726,12 @@ uint16_t uniffi_convexmobile_checksum_method_querysubscriber_on_update(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_CONVEXMOBILE_CHECKSUM_METHOD_SUBSCRIPTIONHANDLE_CANCEL
 #define UNIFFI_FFIDEF_UNIFFI_CONVEXMOBILE_CHECKSUM_METHOD_SUBSCRIPTIONHANDLE_CANCEL
 uint16_t uniffi_convexmobile_checksum_method_subscriptionhandle_cancel(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_CONVEXMOBILE_CHECKSUM_METHOD_WEBSOCKETSTATESUBSCRIBER_ON_STATE_CHANGE
+#define UNIFFI_FFIDEF_UNIFFI_CONVEXMOBILE_CHECKSUM_METHOD_WEBSOCKETSTATESUBSCRIBER_ON_STATE_CHANGE
+uint16_t uniffi_convexmobile_checksum_method_websocketstatesubscriber_on_state_change(void
     
 );
 #endif
