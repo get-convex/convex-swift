@@ -399,11 +399,13 @@ class FakeMobileConvexClient: UniFFI.MobileConvexClientProtocol {
 class FakeAuthProvider: AuthProvider {
   static let CREDENTIALS = "credentials, yo"
 
-  func loginFromCache() async throws -> String {
+  func loginFromCache(onIdToken: @Sendable @escaping (String?) -> Void) async throws -> String {
+    onIdToken("extracted: \(FakeAuthProvider.CREDENTIALS)")
     return FakeAuthProvider.CREDENTIALS
   }
 
-  func login() async throws -> String {
+  func login(onIdToken: @Sendable @escaping (String?) -> Void) async throws -> String {
+    onIdToken("extracted: \(FakeAuthProvider.CREDENTIALS)")
     return FakeAuthProvider.CREDENTIALS
   }
 
