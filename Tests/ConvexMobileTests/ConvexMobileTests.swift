@@ -328,6 +328,7 @@ final class ConvexMobileTests: XCTestCase {
   }
 
   func testTokenRefreshCallsSetAuthOnFfiClient() async throws {
+    let expectation = self.expectation(description: "setAuthCalled")
     let fakeFfiClient = FakeMobileConvexClient()
     let fakeAuthProvider = FakeAuthProvider()
     let client = ConvexMobile.ConvexClientWithAuth(
@@ -338,15 +339,50 @@ final class ConvexMobileTests: XCTestCase {
     XCTAssertEqual(try result.get(), FakeAuthProvider.CREDENTIALS)
     XCTAssertEqual(fakeFfiClient.auth, "extracted: \(FakeAuthProvider.CREDENTIALS)")
 
+    // Set up expectation for the next setAuth call
+    fakeFfiClient.setAuthExpectation = expectation
+
     // Simulate a token refresh by invoking the stored callback with a new token
     let refreshedToken = "refreshed_token_value"
     fakeAuthProvider.simulateTokenRefresh(newToken: refreshedToken)
 
-    // Give the async setAuth call time to complete
-    try await Task.sleep(nanoseconds: UInt64(0.1 * 1_000_000_000))
+    await fulfillment(of: [expectation], timeout: 10)
 
     // Verify the new token was passed to the FFI client
     XCTAssertEqual(fakeFfiClient.auth, refreshedToken)
+  }
+
+  func testTokenRefreshWithNilSetsAuthStateToUnauthenticated() async throws {
+    let expectation = self.expectation(description: "authStateUnauthenticated")
+    let fakeFfiClient = FakeMobileConvexClient()
+    let fakeAuthProvider = FakeAuthProvider()
+    let client = ConvexMobile.ConvexClientWithAuth(
+      ffiClient: fakeFfiClient, authProvider: fakeAuthProvider)
+
+    var didBecomeUnauthenticated = false
+    let cancellationHandle = client.authState.sink(
+      receiveValue: { (value: AuthState<String>) in
+        if case .unauthenticated = value {
+          // Skip the initial unauthenticated state
+          if didBecomeUnauthenticated {
+            expectation.fulfill()
+          }
+        } else if case .authenticated = value {
+          didBecomeUnauthenticated = true
+        }
+      })
+
+    // Initial login sets the auth state to authenticated
+    let result = await client.login()
+    XCTAssertEqual(try result.get(), FakeAuthProvider.CREDENTIALS)
+
+    // Simulate a token refresh with nil (session became invalid)
+    fakeAuthProvider.simulateTokenRefresh(newToken: nil)
+
+    await fulfillment(of: [expectation], timeout: 10)
+
+    // Verify the FFI client auth was cleared and state is unauthenticated
+    XCTAssertNil(fakeFfiClient.auth)
   }
 }
 
@@ -357,6 +393,7 @@ class FakeMobileConvexClient: UniFFI.MobileConvexClientProtocol {
   var actionCalls: [String] = []
   var auth: String? = nil
   var resultPublished: XCTestExpectation?
+  var setAuthExpectation: XCTestExpectation?
 
   init(initialAuth: String? = nil, resultPublished: XCTestExpectation? = nil) {
     self.auth = initialAuth
@@ -387,6 +424,7 @@ class FakeMobileConvexClient: UniFFI.MobileConvexClientProtocol {
 
   func setAuth(token: String?) async throws {
     auth = token
+    setAuthExpectation?.fulfill()
   }
 
   func subscribe(name: String, args: [String: String], subscriber: any UniFFI.QuerySubscriber)
