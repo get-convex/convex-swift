@@ -178,11 +178,19 @@ public protocol AuthProvider<T> {
   associatedtype T
 
   /// Trigger a login flow, which might launch a new UI/screen.
-  func login() async throws -> T
+  ///
+  /// - Parameter onIdToken: A callback to invoke with a fresh JWT ID token. The auth provider should store
+  ///   this callback and invoke it whenever a new token is available (e.g., on token refresh).
+  ///   Call with `nil` if the session becomes invalid (e.g., token refresh fails).
+  func login(onIdToken: @Sendable @escaping (String?) -> Void) async throws -> T
   /// Trigger a logout flow, which might launch a new UI/screen.
   func logout() async throws
-  /// Trigger a cached, UI-less re-authentication ussing stored credentials from a previous ``login()``.
-  func loginFromCache() async throws -> T
+  /// Trigger a cached, UI-less re-authentication using stored credentials from a previous ``login()``.
+  ///
+  /// - Parameter onIdToken: A callback to invoke with a fresh JWT ID token. The auth provider should store
+  ///   this callback and invoke it whenever a new token is available (e.g., on token refresh).
+  ///   Call with `nil` if the session becomes invalid (e.g., token refresh fails).
+  func loginFromCache(onIdToken: @Sendable @escaping (String?) -> Void) async throws -> T
   /// Extracts a [JWT ID token](https://openid.net/specs/openid-connect-core-1_0.html#IDToken)
   /// from the `authResult`.
   func extractIdToken(from authResult: T) -> String
@@ -255,7 +263,7 @@ public class ConvexClientWithAuth<T>: ConvexClient {
   private func login(strategy: LoginStrategy) async -> Result<T, Error> {
     authPublisher.send(AuthState.loading)
     do {
-      let authData = try await strategy()
+      let authData = try await strategy(onIdTokenHandler())
       try await ffiClient.setAuth(token: authProvider.extractIdToken(from: authData))
       authPublisher.send(AuthState.authenticated(authData))
       return Result.success(authData)
@@ -266,7 +274,27 @@ public class ConvexClientWithAuth<T>: ConvexClient {
     }
   }
 
-  private typealias LoginStrategy = () async throws -> T
+  /// Creates a sendable handler for token updates from the auth provider.
+  ///
+  /// This handler is passed to the auth provider during login and should be called
+  /// whenever a fresh token is available or when the session becomes invalid.
+  private func onIdTokenHandler() -> @Sendable (String?) -> Void {
+    { [ffiClient, authPublisher] token in
+      Task {
+        do {
+          try await ffiClient.setAuth(token: token)
+          if token == nil {
+            authPublisher.send(AuthState.unauthenticated)
+          }
+        } catch {
+          dump(error)
+          authPublisher.send(AuthState.unauthenticated)
+        }
+      }
+    }
+  }
+
+  private typealias LoginStrategy = (@Sendable @escaping (String?) -> Void) async throws -> T
 }
 
 private class SubscriptionAdapter<T: Decodable>: QuerySubscriber {

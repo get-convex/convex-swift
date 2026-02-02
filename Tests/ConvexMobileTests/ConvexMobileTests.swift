@@ -326,6 +326,64 @@ final class ConvexMobileTests: XCTestCase {
     XCTAssertEqual(try result.get(), FakeAuthProvider.CREDENTIALS)
     XCTAssertEqual(credentials, FakeAuthProvider.CREDENTIALS)
   }
+
+  func testTokenRefreshCallsSetAuthOnFfiClient() async throws {
+    let expectation = self.expectation(description: "setAuthCalled")
+    let fakeFfiClient = FakeMobileConvexClient()
+    let fakeAuthProvider = FakeAuthProvider()
+    let client = ConvexMobile.ConvexClientWithAuth(
+      ffiClient: fakeFfiClient, authProvider: fakeAuthProvider)
+
+    // Initial login sets the auth
+    let result = await client.login()
+    XCTAssertEqual(try result.get(), FakeAuthProvider.CREDENTIALS)
+    XCTAssertEqual(fakeFfiClient.auth, "extracted: \(FakeAuthProvider.CREDENTIALS)")
+
+    // Set up expectation for the next setAuth call
+    fakeFfiClient.setAuthExpectation = expectation
+
+    // Simulate a token refresh by invoking the stored callback with a new token
+    let refreshedToken = "refreshed_token_value"
+    fakeAuthProvider.simulateTokenRefresh(newToken: refreshedToken)
+
+    await fulfillment(of: [expectation], timeout: 10)
+
+    // Verify the new token was passed to the FFI client
+    XCTAssertEqual(fakeFfiClient.auth, refreshedToken)
+  }
+
+  func testTokenRefreshWithNilSetsAuthStateToUnauthenticated() async throws {
+    let expectation = self.expectation(description: "authStateUnauthenticated")
+    let fakeFfiClient = FakeMobileConvexClient()
+    let fakeAuthProvider = FakeAuthProvider()
+    let client = ConvexMobile.ConvexClientWithAuth(
+      ffiClient: fakeFfiClient, authProvider: fakeAuthProvider)
+
+    var didBecomeUnauthenticated = false
+    let cancellationHandle = client.authState.sink(
+      receiveValue: { (value: AuthState<String>) in
+        if case .unauthenticated = value {
+          // Skip the initial unauthenticated state
+          if didBecomeUnauthenticated {
+            expectation.fulfill()
+          }
+        } else if case .authenticated = value {
+          didBecomeUnauthenticated = true
+        }
+      })
+
+    // Initial login sets the auth state to authenticated
+    let result = await client.login()
+    XCTAssertEqual(try result.get(), FakeAuthProvider.CREDENTIALS)
+
+    // Simulate a token refresh with nil (session became invalid)
+    fakeAuthProvider.simulateTokenRefresh(newToken: nil)
+
+    await fulfillment(of: [expectation], timeout: 10)
+
+    // Verify the FFI client auth was cleared and state is unauthenticated
+    XCTAssertNil(fakeFfiClient.auth)
+  }
 }
 
 class FakeMobileConvexClient: UniFFI.MobileConvexClientProtocol {
@@ -335,6 +393,7 @@ class FakeMobileConvexClient: UniFFI.MobileConvexClientProtocol {
   var actionCalls: [String] = []
   var auth: String? = nil
   var resultPublished: XCTestExpectation?
+  var setAuthExpectation: XCTestExpectation?
 
   init(initialAuth: String? = nil, resultPublished: XCTestExpectation? = nil) {
     self.auth = initialAuth
@@ -365,6 +424,7 @@ class FakeMobileConvexClient: UniFFI.MobileConvexClientProtocol {
 
   func setAuth(token: String?) async throws {
     auth = token
+    setAuthExpectation?.fulfill()
   }
 
   func subscribe(name: String, args: [String: String], subscriber: any UniFFI.QuerySubscriber)
@@ -399,11 +459,17 @@ class FakeMobileConvexClient: UniFFI.MobileConvexClientProtocol {
 class FakeAuthProvider: AuthProvider {
   static let CREDENTIALS = "credentials, yo"
 
-  func loginFromCache() async throws -> String {
+  private var storedOnIdToken: (@Sendable (String?) -> Void)?
+
+  func loginFromCache(onIdToken: @Sendable @escaping (String?) -> Void) async throws -> String {
+    storedOnIdToken = onIdToken
+    onIdToken("extracted: \(FakeAuthProvider.CREDENTIALS)")
     return FakeAuthProvider.CREDENTIALS
   }
 
-  func login() async throws -> String {
+  func login(onIdToken: @Sendable @escaping (String?) -> Void) async throws -> String {
+    storedOnIdToken = onIdToken
+    onIdToken("extracted: \(FakeAuthProvider.CREDENTIALS)")
     return FakeAuthProvider.CREDENTIALS
   }
 
@@ -413,6 +479,11 @@ class FakeAuthProvider: AuthProvider {
 
   func extractIdToken(from authResult: String) -> String {
     return "extracted: \(authResult)"
+  }
+
+  /// Simulates a token refresh by invoking the stored callback with a new token.
+  func simulateTokenRefresh(newToken: String?) {
+    storedOnIdToken?(newToken)
   }
 }
 
