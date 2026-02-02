@@ -181,7 +181,7 @@ public protocol AuthProvider<T> {
   ///
   /// - Parameter onIdToken: A callback to invoke with fresh JWT tokens. The auth provider should store
   ///   this callback and invoke it whenever a new token is available (e.g., on token refresh).
-  ///   Call with `nil` when the user logs out or the session becomes invalid.
+  ///   Call with `nil` if the session becomes invalid (e.g., token refresh fails).
   func login(onIdToken: @Sendable @escaping (String?) -> Void) async throws -> T
   /// Trigger a logout flow, which might launch a new UI/screen.
   func logout() async throws
@@ -189,7 +189,7 @@ public protocol AuthProvider<T> {
   ///
   /// - Parameter onIdToken: A callback to invoke with fresh JWT tokens. The auth provider should store
   ///   this callback and invoke it whenever a new token is available (e.g., on token refresh).
-  ///   Call with `nil` when the user logs out or the session becomes invalid.
+  ///   Call with `nil` if the session becomes invalid (e.g., token refresh fails).
   func loginFromCache(onIdToken: @Sendable @escaping (String?) -> Void) async throws -> T
   /// Extracts a [JWT ID token](https://openid.net/specs/openid-connect-core-1_0.html#IDToken)
   /// from the `authResult`.
