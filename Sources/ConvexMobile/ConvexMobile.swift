@@ -179,7 +179,7 @@ public protocol AuthProvider<T> {
 
   /// Trigger a login flow, which might launch a new UI/screen.
   ///
-  /// - Parameter onIdToken: A callback to invoke with fresh JWT tokens. The auth provider should store
+  /// - Parameter onIdToken: A callback to invoke with a fresh JWT ID token. The auth provider should store
   ///   this callback and invoke it whenever a new token is available (e.g., on token refresh).
   ///   Call with `nil` if the session becomes invalid (e.g., token refresh fails).
   func login(onIdToken: @Sendable @escaping (String?) -> Void) async throws -> T
@@ -187,7 +187,7 @@ public protocol AuthProvider<T> {
   func logout() async throws
   /// Trigger a cached, UI-less re-authentication using stored credentials from a previous ``login()``.
   ///
-  /// - Parameter onIdToken: A callback to invoke with fresh JWT tokens. The auth provider should store
+  /// - Parameter onIdToken: A callback to invoke with a fresh JWT ID token. The auth provider should store
   ///   this callback and invoke it whenever a new token is available (e.g., on token refresh).
   ///   Call with `nil` if the session becomes invalid (e.g., token refresh fails).
   func loginFromCache(onIdToken: @Sendable @escaping (String?) -> Void) async throws -> T
@@ -283,6 +283,9 @@ public class ConvexClientWithAuth<T>: ConvexClient {
       Task {
         do {
           try await ffiClient.setAuth(token: token)
+          if token == nil {
+            authPublisher.send(AuthState.unauthenticated)
+          }
         } catch {
           dump(error)
           authPublisher.send(AuthState.unauthenticated)

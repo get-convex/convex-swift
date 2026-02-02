@@ -326,6 +326,28 @@ final class ConvexMobileTests: XCTestCase {
     XCTAssertEqual(try result.get(), FakeAuthProvider.CREDENTIALS)
     XCTAssertEqual(credentials, FakeAuthProvider.CREDENTIALS)
   }
+
+  func testTokenRefreshCallsSetAuthOnFfiClient() async throws {
+    let fakeFfiClient = FakeMobileConvexClient()
+    let fakeAuthProvider = FakeAuthProvider()
+    let client = ConvexMobile.ConvexClientWithAuth(
+      ffiClient: fakeFfiClient, authProvider: fakeAuthProvider)
+
+    // Initial login sets the auth
+    let result = await client.login()
+    XCTAssertEqual(try result.get(), FakeAuthProvider.CREDENTIALS)
+    XCTAssertEqual(fakeFfiClient.auth, "extracted: \(FakeAuthProvider.CREDENTIALS)")
+
+    // Simulate a token refresh by invoking the stored callback with a new token
+    let refreshedToken = "refreshed_token_value"
+    fakeAuthProvider.simulateTokenRefresh(newToken: refreshedToken)
+
+    // Give the async setAuth call time to complete
+    try await Task.sleep(nanoseconds: UInt64(0.1 * 1_000_000_000))
+
+    // Verify the new token was passed to the FFI client
+    XCTAssertEqual(fakeFfiClient.auth, refreshedToken)
+  }
 }
 
 class FakeMobileConvexClient: UniFFI.MobileConvexClientProtocol {
@@ -399,12 +421,16 @@ class FakeMobileConvexClient: UniFFI.MobileConvexClientProtocol {
 class FakeAuthProvider: AuthProvider {
   static let CREDENTIALS = "credentials, yo"
 
+  private var storedOnIdToken: (@Sendable (String?) -> Void)?
+
   func loginFromCache(onIdToken: @Sendable @escaping (String?) -> Void) async throws -> String {
+    storedOnIdToken = onIdToken
     onIdToken("extracted: \(FakeAuthProvider.CREDENTIALS)")
     return FakeAuthProvider.CREDENTIALS
   }
 
   func login(onIdToken: @Sendable @escaping (String?) -> Void) async throws -> String {
+    storedOnIdToken = onIdToken
     onIdToken("extracted: \(FakeAuthProvider.CREDENTIALS)")
     return FakeAuthProvider.CREDENTIALS
   }
@@ -415,6 +441,11 @@ class FakeAuthProvider: AuthProvider {
 
   func extractIdToken(from authResult: String) -> String {
     return "extracted: \(authResult)"
+  }
+
+  /// Simulates a token refresh by invoking the stored callback with a new token.
+  func simulateTokenRefresh(newToken: String?) {
+    storedOnIdToken?(newToken)
   }
 }
 
