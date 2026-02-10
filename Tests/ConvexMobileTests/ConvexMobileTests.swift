@@ -273,6 +273,47 @@ final class ConvexMobileTests: XCTestCase {
     XCTAssertEqual(fakeFfiClient.actionCalls, ["nullResult"])
   }
 
+  func testMutationTypeMismatchThrows() async throws {
+    let client = ConvexMobile.ConvexClient(ffiClient: FakeMobileConvexClient())
+
+    do {
+      let _: Message = try await client.mutation("typeMismatch")
+      XCTFail("Expected a DecodingError to be thrown")
+    } catch is DecodingError {
+      // Expected: decoding "just a plain string" into Message fails gracefully
+    } catch {
+      XCTFail("Expected DecodingError but got \(type(of: error)): \(error)")
+    }
+  }
+
+  func testSubscribeTypeMismatchSendsError() async throws {
+    let expectation = self.expectation(description: "subscribe error")
+    var receivedError: ClientError?
+    let client = ConvexMobile.ConvexClient(ffiClient: FakeMobileConvexClient())
+
+    let cancellationHandle = client.subscribe(to: "typeMismatch").sink(
+      receiveCompletion: { completion in
+        switch completion {
+        case .finished:
+          break
+        case .failure(let clientError):
+          receivedError = clientError
+          expectation.fulfill()
+        }
+      },
+      receiveValue: { (value: Message) in
+        XCTFail("Should not receive a value for a type mismatch")
+      })
+
+    await fulfillment(of: [expectation], timeout: 10)
+
+    if case .InternalError = receivedError! {
+      // Expected: decoding error surfaced as InternalError
+    } else {
+      XCTFail("Expected InternalError but got \(receivedError!)")
+    }
+  }
+
   func testLoginSetsAuthOnFfiClient() async throws {
     let fakeFfiClient = FakeMobileConvexClient()
     let client = ConvexMobile.ConvexClientWithAuth(
@@ -405,6 +446,9 @@ class FakeMobileConvexClient: UniFFI.MobileConvexClientProtocol {
     if name == "nullResult" {
       return "null"
     }
+    if name == "typeMismatch" {
+      return "\"just a plain string\""
+    }
     let receivedConvexInt = args["anInt"]!
     return "{\"_id\": \"the_id\", \"val\": \(receivedConvexInt), \"extra\": null}"
   }
@@ -413,6 +457,9 @@ class FakeMobileConvexClient: UniFFI.MobileConvexClientProtocol {
     mutationCalls.append(name)
     if name == "nullResult" {
       return "null"
+    }
+    if name == "typeMismatch" {
+      return "\"just a plain string\""
     }
     let receivedConvexInt = args["anInt"]!
     return "{\"_id\": \"the_id\", \"val\": \(receivedConvexInt), \"extra\": null}"
@@ -433,7 +480,10 @@ class FakeMobileConvexClient: UniFFI.MobileConvexClientProtocol {
     subscriptionArgs = args
     let _ = Task {
       try await Task.sleep(nanoseconds: UInt64(0.05 * 1_000_000_000))
-      if name == "missingVal" {
+      if name == "typeMismatch" {
+        subscriber.onUpdate(
+          value: "\"just a plain string\"")
+      } else if name == "missingVal" {
         subscriber.onUpdate(
           value: "{\"_id\": \"the_id\", \"extra\": null}")
       } else if name == "nullVal" {
