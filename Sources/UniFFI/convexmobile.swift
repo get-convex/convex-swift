@@ -382,6 +382,27 @@ fileprivate class UniffiHandleMap<T> {
 // Public interface members begin here.
 
 
+fileprivate struct FfiConverterBool : FfiConverter {
+    typealias FfiType = Int8
+    typealias SwiftType = Bool
+
+    public static func lift(_ value: Int8) throws -> Bool {
+        return value != 0
+    }
+
+    public static func lower(_ value: Bool) -> Int8 {
+        return value ? 1 : 0
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> Bool {
+        return try lift(readInt(&buf))
+    }
+
+    public static func write(_ value: Bool, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
 fileprivate struct FfiConverterString: FfiConverter {
     typealias SwiftType = String
     typealias FfiType = RustBuffer
@@ -423,6 +444,191 @@ fileprivate struct FfiConverterString: FfiConverter {
 
 
 
+public protocol AuthTokenProvider : AnyObject {
+    
+    func fetchToken(forceRefresh: Bool) async throws  -> String?
+    
+}
+
+open class AuthTokenProviderImpl:
+    AuthTokenProvider {
+    fileprivate let pointer: UnsafeMutableRawPointer!
+
+    /// Used to instantiate a [FFIObject] without an actual pointer, for fakes in tests, mostly.
+    public struct NoPointer {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+    required public init(unsafeFromRawPointer pointer: UnsafeMutableRawPointer) {
+        self.pointer = pointer
+    }
+
+    /// This constructor can be used to instantiate a fake object.
+    /// - Parameter noPointer: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    ///
+    /// - Warning:
+    ///     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing [Pointer] the FFI lower functions will crash.
+    public init(noPointer: NoPointer) {
+        self.pointer = nil
+    }
+
+    public func uniffiClonePointer() -> UnsafeMutableRawPointer {
+        return try! rustCall { uniffi_convexmobile_fn_clone_authtokenprovider(self.pointer, $0) }
+    }
+    // No primary constructor declared for this class.
+
+    deinit {
+        guard let pointer = pointer else {
+            return
+        }
+
+        try! rustCall { uniffi_convexmobile_fn_free_authtokenprovider(pointer, $0) }
+    }
+
+    
+
+    
+open func fetchToken(forceRefresh: Bool)async throws  -> String? {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_convexmobile_fn_method_authtokenprovider_fetch_token(
+                    self.uniffiClonePointer(),
+                    FfiConverterBool.lower(forceRefresh)
+                )
+            },
+            pollFunc: ffi_convexmobile_rust_future_poll_rust_buffer,
+            completeFunc: ffi_convexmobile_rust_future_complete_rust_buffer,
+            freeFunc: ffi_convexmobile_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterOptionString.lift,
+            errorHandler: FfiConverterTypeClientError.lift
+        )
+}
+    
+
+}
+// Magic number for the Rust proxy to call using the same mechanism as every other method,
+// to free the callback once it's dropped by Rust.
+private let IDX_CALLBACK_FREE: Int32 = 0
+// Callback return codes
+private let UNIFFI_CALLBACK_SUCCESS: Int32 = 0
+private let UNIFFI_CALLBACK_ERROR: Int32 = 1
+private let UNIFFI_CALLBACK_UNEXPECTED_ERROR: Int32 = 2
+
+// Put the implementation in a struct so we don't pollute the top-level namespace
+fileprivate struct UniffiCallbackInterfaceAuthTokenProvider {
+
+    // Create the VTable using a series of closures.
+    // Swift automatically converts these into C callback functions.
+    static var vtable: UniffiVTableCallbackInterfaceAuthTokenProvider = UniffiVTableCallbackInterfaceAuthTokenProvider(
+        fetchToken: { (
+            uniffiHandle: UInt64,
+            forceRefresh: Int8,
+            uniffiFutureCallback: @escaping UniffiForeignFutureCompleteRustBuffer,
+            uniffiCallbackData: UInt64,
+            uniffiOutReturn: UnsafeMutablePointer<UniffiForeignFuture>
+        ) in
+            let makeCall = {
+                () async throws -> String? in
+                guard let uniffiObj = try? FfiConverterTypeAuthTokenProvider.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return try await uniffiObj.fetchToken(
+                     forceRefresh: try FfiConverterBool.lift(forceRefresh)
+                )
+            }
+
+            let uniffiHandleSuccess = { (returnValue: String?) in
+                uniffiFutureCallback(
+                    uniffiCallbackData,
+                    UniffiForeignFutureStructRustBuffer(
+                        returnValue: FfiConverterOptionString.lower(returnValue),
+                        callStatus: RustCallStatus()
+                    )
+                )
+            }
+            let uniffiHandleError = { (statusCode, errorBuf) in
+                uniffiFutureCallback(
+                    uniffiCallbackData,
+                    UniffiForeignFutureStructRustBuffer(
+                        returnValue: RustBuffer.empty(),
+                        callStatus: RustCallStatus(code: statusCode, errorBuf: errorBuf)
+                    )
+                )
+            }
+            let uniffiForeignFuture = uniffiTraitInterfaceCallAsyncWithError(
+                makeCall: makeCall,
+                handleSuccess: uniffiHandleSuccess,
+                handleError: uniffiHandleError,
+                lowerError: FfiConverterTypeClientError.lower
+            )
+            uniffiOutReturn.pointee = uniffiForeignFuture
+        },
+        uniffiFree: { (uniffiHandle: UInt64) -> () in
+            let result = try? FfiConverterTypeAuthTokenProvider.handleMap.remove(handle: uniffiHandle)
+            if result == nil {
+                print("Uniffi callback interface AuthTokenProvider: handle missing in uniffiFree")
+            }
+        }
+    )
+}
+
+private func uniffiCallbackInitAuthTokenProvider() {
+    uniffi_convexmobile_fn_init_callback_vtable_authtokenprovider(&UniffiCallbackInterfaceAuthTokenProvider.vtable)
+}
+
+public struct FfiConverterTypeAuthTokenProvider: FfiConverter {
+    fileprivate static var handleMap = UniffiHandleMap<AuthTokenProvider>()
+
+    typealias FfiType = UnsafeMutableRawPointer
+    typealias SwiftType = AuthTokenProvider
+
+    public static func lift(_ pointer: UnsafeMutableRawPointer) throws -> AuthTokenProvider {
+        return AuthTokenProviderImpl(unsafeFromRawPointer: pointer)
+    }
+
+    public static func lower(_ value: AuthTokenProvider) -> UnsafeMutableRawPointer {
+        guard let ptr = UnsafeMutableRawPointer(bitPattern: UInt(truncatingIfNeeded: handleMap.insert(obj: value))) else {
+            fatalError("Cast to UnsafeMutableRawPointer failed")
+        }
+        return ptr
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> AuthTokenProvider {
+        let v: UInt64 = try readInt(&buf)
+        // The Rust code won't compile if a pointer won't fit in a UInt64.
+        // We have to go via `UInt` because that's the thing that's the size of a pointer.
+        let ptr = UnsafeMutableRawPointer(bitPattern: UInt(truncatingIfNeeded: v))
+        if (ptr == nil) {
+            throw UniffiInternalError.unexpectedNullPointer
+        }
+        return try lift(ptr!)
+    }
+
+    public static func write(_ value: AuthTokenProvider, into buf: inout [UInt8]) {
+        // This fiddling is because `Int` is the thing that's the same size as a pointer.
+        // The Rust code won't compile if a pointer won't fit in a `UInt64`.
+        writeInt(&buf, UInt64(bitPattern: Int64(Int(bitPattern: lower(value)))))
+    }
+}
+
+
+
+
+public func FfiConverterTypeAuthTokenProvider_lift(_ pointer: UnsafeMutableRawPointer) throws -> AuthTokenProvider {
+    return try FfiConverterTypeAuthTokenProvider.lift(pointer)
+}
+
+public func FfiConverterTypeAuthTokenProvider_lower(_ value: AuthTokenProvider) -> UnsafeMutableRawPointer {
+    return FfiConverterTypeAuthTokenProvider.lower(value)
+}
+
+
+
+
 public protocol MobileConvexClientProtocol : AnyObject {
     
     func action(name: String, args: [String: String]) async throws  -> String
@@ -432,6 +638,8 @@ public protocol MobileConvexClientProtocol : AnyObject {
     func query(name: String, args: [String: String]) async throws  -> String
     
     func setAuth(token: String?) async throws 
+    
+    func setAuthCallback(provider: AuthTokenProvider?) async throws 
     
     func subscribe(name: String, args: [String: String], subscriber: QuerySubscriber) async throws  -> SubscriptionHandle
     
@@ -546,6 +754,23 @@ open func setAuth(token: String?)async throws  {
                 uniffi_convexmobile_fn_method_mobileconvexclient_set_auth(
                     self.uniffiClonePointer(),
                     FfiConverterOptionString.lower(token)
+                )
+            },
+            pollFunc: ffi_convexmobile_rust_future_poll_void,
+            completeFunc: ffi_convexmobile_rust_future_complete_void,
+            freeFunc: ffi_convexmobile_rust_future_free_void,
+            liftFunc: { $0 },
+            errorHandler: FfiConverterTypeClientError.lift
+        )
+}
+    
+open func setAuthCallback(provider: AuthTokenProvider?)async throws  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_convexmobile_fn_method_mobileconvexclient_set_auth_callback(
+                    self.uniffiClonePointer(),
+                    FfiConverterOptionTypeAuthTokenProvider.lower(provider)
                 )
             },
             pollFunc: ffi_convexmobile_rust_future_poll_void,
@@ -687,13 +912,7 @@ open func onUpdate(value: String) {try! rustCall() {
     
 
 }
-// Magic number for the Rust proxy to call using the same mechanism as every other method,
-// to free the callback once it's dropped by Rust.
-private let IDX_CALLBACK_FREE: Int32 = 0
-// Callback return codes
-private let UNIFFI_CALLBACK_SUCCESS: Int32 = 0
-private let UNIFFI_CALLBACK_ERROR: Int32 = 1
-private let UNIFFI_CALLBACK_UNEXPECTED_ERROR: Int32 = 2
+
 
 // Put the implementation in a struct so we don't pollute the top-level namespace
 fileprivate struct UniffiCallbackInterfaceQuerySubscriber {
@@ -1209,6 +1428,27 @@ fileprivate struct FfiConverterOptionString: FfiConverterRustBuffer {
     }
 }
 
+fileprivate struct FfiConverterOptionTypeAuthTokenProvider: FfiConverterRustBuffer {
+    typealias SwiftType = AuthTokenProvider?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeAuthTokenProvider.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeAuthTokenProvider.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
 fileprivate struct FfiConverterOptionTypeWebSocketStateSubscriber: FfiConverterRustBuffer {
     typealias SwiftType = WebSocketStateSubscriber?
 
@@ -1298,6 +1538,72 @@ fileprivate func uniffiFutureContinuationCallback(handle: UInt64, pollResult: In
         print("uniffiFutureContinuationCallback invalid handle")
     }
 }
+private func uniffiTraitInterfaceCallAsync<T>(
+    makeCall: @escaping () async throws -> T,
+    handleSuccess: @escaping (T) -> (),
+    handleError: @escaping (Int8, RustBuffer) -> ()
+) -> UniffiForeignFuture {
+    let task = Task {
+        do {
+            handleSuccess(try await makeCall())
+        } catch {
+            handleError(CALL_UNEXPECTED_ERROR, FfiConverterString.lower(String(describing: error)))
+        }
+    }
+    let handle = UNIFFI_FOREIGN_FUTURE_HANDLE_MAP.insert(obj: task)
+    return UniffiForeignFuture(handle: handle, free: uniffiForeignFutureFree)
+
+}
+
+private func uniffiTraitInterfaceCallAsyncWithError<T, E>(
+    makeCall: @escaping () async throws -> T,
+    handleSuccess: @escaping (T) -> (),
+    handleError: @escaping (Int8, RustBuffer) -> (),
+    lowerError: @escaping (E) -> RustBuffer
+) -> UniffiForeignFuture {
+    let task = Task {
+        do {
+            handleSuccess(try await makeCall())
+        } catch let error as E {
+            handleError(CALL_ERROR, lowerError(error))
+        } catch {
+            handleError(CALL_UNEXPECTED_ERROR, FfiConverterString.lower(String(describing: error)))
+        }
+    }
+    let handle = UNIFFI_FOREIGN_FUTURE_HANDLE_MAP.insert(obj: task)
+    return UniffiForeignFuture(handle: handle, free: uniffiForeignFutureFree)
+}
+
+// Borrow the callback handle map implementation to store foreign future handles
+// TODO: consolidate the handle-map code (https://github.com/mozilla/uniffi-rs/pull/1823)
+fileprivate var UNIFFI_FOREIGN_FUTURE_HANDLE_MAP = UniffiHandleMap<UniffiForeignFutureTask>()
+
+// Protocol for tasks that handle foreign futures.
+//
+// Defining a protocol allows all tasks to be stored in the same handle map.  This can't be done
+// with the task object itself, since has generic parameters.
+protocol UniffiForeignFutureTask {
+    func cancel()
+}
+
+extension Task: UniffiForeignFutureTask {}
+
+private func uniffiForeignFutureFree(handle: UInt64) {
+    do {
+        let task = try UNIFFI_FOREIGN_FUTURE_HANDLE_MAP.remove(handle: handle)
+        // Set the cancellation flag on the task.  If it's still running, the code can check the
+        // cancellation flag or call `Task.checkCancellation()`.  If the task has completed, this is
+        // a no-op.
+        task.cancel()
+    } catch {
+        print("uniffiForeignFutureFree: handle missing from handlemap")
+    }
+}
+
+// For testing
+public func uniffiForeignFutureHandleCountConvexmobile() -> Int {
+    UNIFFI_FOREIGN_FUTURE_HANDLE_MAP.count
+}
 public func initConvexLogging() {try! rustCall() {
     uniffi_convexmobile_fn_func_init_convex_logging($0
     )
@@ -1322,6 +1628,9 @@ private var initializationResult: InitializationResult = {
     if (uniffi_convexmobile_checksum_func_init_convex_logging() != 16099) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_convexmobile_checksum_method_authtokenprovider_fetch_token() != 40007) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_convexmobile_checksum_method_mobileconvexclient_action() != 2118) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -1332,6 +1641,9 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_convexmobile_checksum_method_mobileconvexclient_set_auth() != 54530) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_convexmobile_checksum_method_mobileconvexclient_set_auth_callback() != 36764) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_convexmobile_checksum_method_mobileconvexclient_subscribe() != 60726) {
@@ -1353,6 +1665,7 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
 
+    uniffiCallbackInitAuthTokenProvider()
     uniffiCallbackInitQuerySubscriber()
     uniffiCallbackInitWebSocketStateSubscriber()
     return InitializationResult.ok

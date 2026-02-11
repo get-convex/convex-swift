@@ -251,6 +251,12 @@ typedef void (*UniffiForeignFutureCompleteVoid)(uint64_t, UniffiForeignFutureStr
     );
 
 #endif
+#ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_AUTH_TOKEN_PROVIDER_METHOD0
+#define UNIFFI_FFIDEF_CALLBACK_INTERFACE_AUTH_TOKEN_PROVIDER_METHOD0
+typedef void (*UniffiCallbackInterfaceAuthTokenProviderMethod0)(uint64_t, int8_t, UniffiForeignFutureCompleteRustBuffer _Nonnull, uint64_t, UniffiForeignFuture* _Nonnull
+    );
+
+#endif
 #ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_QUERY_SUBSCRIBER_METHOD0
 #define UNIFFI_FFIDEF_CALLBACK_INTERFACE_QUERY_SUBSCRIBER_METHOD0
 typedef void (*UniffiCallbackInterfaceQuerySubscriberMethod0)(uint64_t, RustBuffer, RustBuffer, void* _Nonnull, 
@@ -272,6 +278,14 @@ typedef void (*UniffiCallbackInterfaceWebSocketStateSubscriberMethod0)(uint64_t,
     );
 
 #endif
+#ifndef UNIFFI_FFIDEF_V_TABLE_CALLBACK_INTERFACE_AUTH_TOKEN_PROVIDER
+#define UNIFFI_FFIDEF_V_TABLE_CALLBACK_INTERFACE_AUTH_TOKEN_PROVIDER
+typedef struct UniffiVTableCallbackInterfaceAuthTokenProvider {
+    UniffiCallbackInterfaceAuthTokenProviderMethod0 _Nonnull fetchToken;
+    UniffiCallbackInterfaceFree _Nonnull uniffiFree;
+} UniffiVTableCallbackInterfaceAuthTokenProvider;
+
+#endif
 #ifndef UNIFFI_FFIDEF_V_TABLE_CALLBACK_INTERFACE_QUERY_SUBSCRIBER
 #define UNIFFI_FFIDEF_V_TABLE_CALLBACK_INTERFACE_QUERY_SUBSCRIBER
 typedef struct UniffiVTableCallbackInterfaceQuerySubscriber {
@@ -288,6 +302,26 @@ typedef struct UniffiVTableCallbackInterfaceWebSocketStateSubscriber {
     UniffiCallbackInterfaceFree _Nonnull uniffiFree;
 } UniffiVTableCallbackInterfaceWebSocketStateSubscriber;
 
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_CONVEXMOBILE_FN_CLONE_AUTHTOKENPROVIDER
+#define UNIFFI_FFIDEF_UNIFFI_CONVEXMOBILE_FN_CLONE_AUTHTOKENPROVIDER
+void*_Nonnull uniffi_convexmobile_fn_clone_authtokenprovider(void*_Nonnull ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_CONVEXMOBILE_FN_FREE_AUTHTOKENPROVIDER
+#define UNIFFI_FFIDEF_UNIFFI_CONVEXMOBILE_FN_FREE_AUTHTOKENPROVIDER
+void uniffi_convexmobile_fn_free_authtokenprovider(void*_Nonnull ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_CONVEXMOBILE_FN_INIT_CALLBACK_VTABLE_AUTHTOKENPROVIDER
+#define UNIFFI_FFIDEF_UNIFFI_CONVEXMOBILE_FN_INIT_CALLBACK_VTABLE_AUTHTOKENPROVIDER
+void uniffi_convexmobile_fn_init_callback_vtable_authtokenprovider(UniffiVTableCallbackInterfaceAuthTokenProvider* _Nonnull vtable
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_CONVEXMOBILE_FN_METHOD_AUTHTOKENPROVIDER_FETCH_TOKEN
+#define UNIFFI_FFIDEF_UNIFFI_CONVEXMOBILE_FN_METHOD_AUTHTOKENPROVIDER_FETCH_TOKEN
+uint64_t uniffi_convexmobile_fn_method_authtokenprovider_fetch_token(void*_Nonnull ptr, int8_t force_refresh
+);
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_CONVEXMOBILE_FN_CLONE_MOBILECONVEXCLIENT
 #define UNIFFI_FFIDEF_UNIFFI_CONVEXMOBILE_FN_CLONE_MOBILECONVEXCLIENT
@@ -322,6 +356,11 @@ uint64_t uniffi_convexmobile_fn_method_mobileconvexclient_query(void*_Nonnull pt
 #ifndef UNIFFI_FFIDEF_UNIFFI_CONVEXMOBILE_FN_METHOD_MOBILECONVEXCLIENT_SET_AUTH
 #define UNIFFI_FFIDEF_UNIFFI_CONVEXMOBILE_FN_METHOD_MOBILECONVEXCLIENT_SET_AUTH
 uint64_t uniffi_convexmobile_fn_method_mobileconvexclient_set_auth(void*_Nonnull ptr, RustBuffer token
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_CONVEXMOBILE_FN_METHOD_MOBILECONVEXCLIENT_SET_AUTH_CALLBACK
+#define UNIFFI_FFIDEF_UNIFFI_CONVEXMOBILE_FN_METHOD_MOBILECONVEXCLIENT_SET_AUTH_CALLBACK
+uint64_t uniffi_convexmobile_fn_method_mobileconvexclient_set_auth_callback(void*_Nonnull ptr, RustBuffer provider
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_CONVEXMOBILE_FN_METHOD_MOBILECONVEXCLIENT_SUBSCRIBE
@@ -681,6 +720,12 @@ uint16_t uniffi_convexmobile_checksum_func_init_convex_logging(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_CONVEXMOBILE_CHECKSUM_METHOD_AUTHTOKENPROVIDER_FETCH_TOKEN
+#define UNIFFI_FFIDEF_UNIFFI_CONVEXMOBILE_CHECKSUM_METHOD_AUTHTOKENPROVIDER_FETCH_TOKEN
+uint16_t uniffi_convexmobile_checksum_method_authtokenprovider_fetch_token(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_CONVEXMOBILE_CHECKSUM_METHOD_MOBILECONVEXCLIENT_ACTION
 #define UNIFFI_FFIDEF_UNIFFI_CONVEXMOBILE_CHECKSUM_METHOD_MOBILECONVEXCLIENT_ACTION
 uint16_t uniffi_convexmobile_checksum_method_mobileconvexclient_action(void
@@ -702,6 +747,12 @@ uint16_t uniffi_convexmobile_checksum_method_mobileconvexclient_query(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_CONVEXMOBILE_CHECKSUM_METHOD_MOBILECONVEXCLIENT_SET_AUTH
 #define UNIFFI_FFIDEF_UNIFFI_CONVEXMOBILE_CHECKSUM_METHOD_MOBILECONVEXCLIENT_SET_AUTH
 uint16_t uniffi_convexmobile_checksum_method_mobileconvexclient_set_auth(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_CONVEXMOBILE_CHECKSUM_METHOD_MOBILECONVEXCLIENT_SET_AUTH_CALLBACK
+#define UNIFFI_FFIDEF_UNIFFI_CONVEXMOBILE_CHECKSUM_METHOD_MOBILECONVEXCLIENT_SET_AUTH_CALLBACK
+uint16_t uniffi_convexmobile_checksum_method_mobileconvexclient_set_auth_callback(void
     
 );
 #endif

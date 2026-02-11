@@ -196,6 +196,31 @@ public protocol AuthProvider<T> {
   func extractIdToken(from authResult: T) -> String
 }
 
+/// A bridge that adapts the push-based `onIdToken` model to the pull-based `AuthTokenProvider`
+/// callback model used by the Rust client.
+///
+/// Caches the latest pushed token so that the Rust client can pull it if needed.
+private actor AuthTokenProviderBridge: AuthTokenProvider {
+  private var cachedToken: String?
+  private var getFreshToken: () async throws -> String?
+
+  init(token: String?, getFreshToken: @escaping () async throws -> String?) {
+    self.cachedToken = token
+    self.getFreshToken = getFreshToken
+  }
+
+  func fetchToken(forceRefresh: Bool) async throws -> String? {
+    if forceRefresh, let freshToken = try? await getFreshToken() {
+      cachedToken = freshToken
+    }
+    return cachedToken
+  }
+
+  func updateToken(_ token: String?) {
+    cachedToken = token
+  }
+}
+
 /// Like ``ConvexClient``, but supports integration with an authentication provider via ``AuthProvider``.
 ///
 /// The generic parameter `T` matches the type of data returned by the ``AuthProvider`` upon successful
@@ -203,6 +228,7 @@ public protocol AuthProvider<T> {
 public class ConvexClientWithAuth<T>: ConvexClient {
   private let authPublisher = CurrentValueSubject<AuthState<T>, Never>(AuthState.unauthenticated)
   private let authProvider: any AuthProvider<T>
+  private var authBridge: AuthTokenProviderBridge?
 
   /// A publisher that updates with the current ``AuthState`` of this client instance.
   public let authState: AnyPublisher<AuthState<T>, Never>
@@ -253,7 +279,8 @@ public class ConvexClientWithAuth<T>: ConvexClient {
   public func logout() async {
     do {
       try await authProvider.logout()
-      try await ffiClient.setAuth(token: nil)
+      authBridge = nil
+      try await ffiClient.setAuthCallback(provider: nil)
       authPublisher.send(AuthState.unauthenticated)
     } catch {
       dump(error)
@@ -263,8 +290,21 @@ public class ConvexClientWithAuth<T>: ConvexClient {
   private func login(strategy: LoginStrategy) async -> Result<T, Error> {
     authPublisher.send(AuthState.loading)
     do {
-      let authData = try await strategy(onIdTokenHandler())
-      try await ffiClient.setAuth(token: authProvider.extractIdToken(from: authData))
+      let idTokenHandler = onIdTokenHandler()
+      let authData = try await strategy(idTokenHandler)
+      let token = authProvider.extractIdToken(from: authData)
+      let bridge = AuthTokenProviderBridge(
+        token: token,
+        getFreshToken: {
+          [weak self, authProvider, idTokenHandler] in
+          let refreshData = try await authProvider.loginFromCache(
+            onIdToken: idTokenHandler
+          )
+          return self?.authProvider.extractIdToken(from: refreshData)
+        }
+      )
+      authBridge = bridge
+      try await ffiClient.setAuthCallback(provider: bridge)
       authPublisher.send(AuthState.authenticated(authData))
       return Result.success(authData)
     } catch {
@@ -279,11 +319,17 @@ public class ConvexClientWithAuth<T>: ConvexClient {
   /// This handler is passed to the auth provider during login and should be called
   /// whenever a fresh token is available or when the session becomes invalid.
   private func onIdTokenHandler() -> @Sendable (String?) -> Void {
-    { [ffiClient, authPublisher] token in
+    { [ffiClient, authPublisher, weak self] token in
       Task {
         do {
-          try await ffiClient.setAuth(token: token)
-          if token == nil {
+          if let token {
+            await self?.authBridge?.updateToken(token)
+            if let bridge = self?.authBridge {
+              try await ffiClient.setAuthCallback(provider: bridge)
+            }
+          } else {
+            self?.authBridge = nil
+            try await ffiClient.setAuthCallback(provider: nil)
             authPublisher.send(AuthState.unauthenticated)
           }
         } catch {
