@@ -378,6 +378,25 @@ final class ConvexMobileTests: XCTestCase {
     XCTAssertEqual(credentials, FakeAuthProvider.CREDENTIALS)
   }
 
+  func testForceRefreshCallsLoginFromCacheForFreshToken() async throws {
+    let fakeFfiClient = FakeMobileConvexClient()
+    let fakeAuthProvider = FakeAuthProvider()
+    let client = ConvexMobile.ConvexClientWithAuth(
+      ffiClient: fakeFfiClient, authProvider: fakeAuthProvider)
+
+    // Initial login sets the auth callback
+    let result = await client.login()
+    XCTAssertEqual(try result.get(), FakeAuthProvider.CREDENTIALS)
+
+    // loginFromCache is not called during login() (only login is)
+    let callCountAfterLogin = fakeAuthProvider.loginFromCacheCallCount
+
+    // Fetch with forceRefresh: true should call through to loginFromCache
+    let token = try await fakeFfiClient.authProvider?.fetchToken(forceRefresh: true)
+    XCTAssertEqual(token, "extracted: \(FakeAuthProvider.CREDENTIALS)")
+    XCTAssertEqual(fakeAuthProvider.loginFromCacheCallCount, callCountAfterLogin + 1)
+  }
+
   func testTokenRefreshUpdatesAuthCallback() async throws {
     let expectation = self.expectation(description: "setAuthCallbackCalled")
     let fakeFfiClient = FakeMobileConvexClient()
@@ -529,8 +548,10 @@ class FakeAuthProvider: AuthProvider {
   static let CREDENTIALS = "credentials, yo"
 
   private var storedOnIdToken: (@Sendable (String?) -> Void)?
+  var loginFromCacheCallCount = 0
 
   func loginFromCache(onIdToken: @Sendable @escaping (String?) -> Void) async throws -> String {
+    loginFromCacheCallCount += 1
     storedOnIdToken = onIdToken
     onIdToken("extracted: \(FakeAuthProvider.CREDENTIALS)")
     return FakeAuthProvider.CREDENTIALS
