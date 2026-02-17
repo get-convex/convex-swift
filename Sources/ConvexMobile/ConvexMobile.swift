@@ -296,11 +296,11 @@ public class ConvexClientWithAuth<T>: ConvexClient {
       let bridge = AuthTokenProviderBridge(
         token: token,
         getFreshToken: {
-          [weak self, authProvider, idTokenHandler] in
+          [authProvider, idTokenHandler] in
           let refreshData = try await authProvider.loginFromCache(
             onIdToken: idTokenHandler
           )
-          return self?.authProvider.extractIdToken(from: refreshData)
+          return authProvider.extractIdToken(from: refreshData)
         }
       )
       authBridge = bridge
