@@ -314,7 +314,7 @@ final class ConvexMobileTests: XCTestCase {
     }
   }
 
-  func testLoginSetsAuthOnFfiClient() async throws {
+  func testLoginSetsAuthCallbackOnFfiClient() async throws {
     let fakeFfiClient = FakeMobileConvexClient()
     let client = ConvexMobile.ConvexClientWithAuth(
       ffiClient: fakeFfiClient, authProvider: FakeAuthProvider())
@@ -322,10 +322,14 @@ final class ConvexMobileTests: XCTestCase {
     let result = await client.login()
 
     XCTAssertEqual(try result.get(), FakeAuthProvider.CREDENTIALS)
-    XCTAssertEqual(fakeFfiClient.auth, "extracted: \(FakeAuthProvider.CREDENTIALS)")
+    // The callback provider should have been set
+    XCTAssertNotNil(fakeFfiClient.authProvider)
+    // Fetching the token from the provider should return the extracted token
+    let token = try await fakeFfiClient.authProvider?.fetchToken(forceRefresh: false)
+    XCTAssertEqual(token, "extracted: \(FakeAuthProvider.CREDENTIALS)")
   }
 
-  func testLoginFromCacheSetsAuthOnFfiClient() async throws {
+  func testLoginFromCacheSetsAuthCallbackOnFfiClient() async throws {
     let fakeFfiClient = FakeMobileConvexClient()
     let client = ConvexMobile.ConvexClientWithAuth(
       ffiClient: fakeFfiClient, authProvider: FakeAuthProvider())
@@ -333,17 +337,23 @@ final class ConvexMobileTests: XCTestCase {
     let result = await client.loginFromCache()
 
     XCTAssertEqual(try result.get(), FakeAuthProvider.CREDENTIALS)
-    XCTAssertEqual(fakeFfiClient.auth, "extracted: \(FakeAuthProvider.CREDENTIALS)")
+    XCTAssertNotNil(fakeFfiClient.authProvider)
+    let token = try await fakeFfiClient.authProvider?.fetchToken(forceRefresh: false)
+    XCTAssertEqual(token, "extracted: \(FakeAuthProvider.CREDENTIALS)")
   }
 
-  func testLogoutClearsAuthOnFfiClient() async throws {
-    let fakeFfiClient = FakeMobileConvexClient(initialAuth: "some auth")
+  func testLogoutClearsAuthCallbackOnFfiClient() async throws {
+    let fakeFfiClient = FakeMobileConvexClient()
     let client = ConvexMobile.ConvexClientWithAuth(
       ffiClient: fakeFfiClient, authProvider: FakeAuthProvider())
 
+    // Login first to set up auth
+    let _ = await client.login()
+    XCTAssertNotNil(fakeFfiClient.authProvider)
+
     await client.logout()
 
-    XCTAssertEqual(fakeFfiClient.auth, nil)
+    XCTAssertNil(fakeFfiClient.authProvider)
   }
 
   func testLoginUpdatesAuthState() async throws {
@@ -368,20 +378,40 @@ final class ConvexMobileTests: XCTestCase {
     XCTAssertEqual(credentials, FakeAuthProvider.CREDENTIALS)
   }
 
-  func testTokenRefreshCallsSetAuthOnFfiClient() async throws {
-    let expectation = self.expectation(description: "setAuthCalled")
+  func testForceRefreshCallsLoginFromCacheForFreshToken() async throws {
     let fakeFfiClient = FakeMobileConvexClient()
     let fakeAuthProvider = FakeAuthProvider()
     let client = ConvexMobile.ConvexClientWithAuth(
       ffiClient: fakeFfiClient, authProvider: fakeAuthProvider)
 
-    // Initial login sets the auth
+    // Initial login sets the auth callback
     let result = await client.login()
     XCTAssertEqual(try result.get(), FakeAuthProvider.CREDENTIALS)
-    XCTAssertEqual(fakeFfiClient.auth, "extracted: \(FakeAuthProvider.CREDENTIALS)")
 
-    // Set up expectation for the next setAuth call
-    fakeFfiClient.setAuthExpectation = expectation
+    // loginFromCache is not called during login() (only login is)
+    let callCountAfterLogin = fakeAuthProvider.loginFromCacheCallCount
+
+    // Fetch with forceRefresh: true should call through to loginFromCache
+    let token = try await fakeFfiClient.authProvider?.fetchToken(forceRefresh: true)
+    XCTAssertEqual(token, "extracted: \(FakeAuthProvider.CREDENTIALS)")
+    XCTAssertEqual(fakeAuthProvider.loginFromCacheCallCount, callCountAfterLogin + 1)
+  }
+
+  func testTokenRefreshUpdatesAuthCallback() async throws {
+    let expectation = self.expectation(description: "setAuthCallbackCalled")
+    let fakeFfiClient = FakeMobileConvexClient()
+    let fakeAuthProvider = FakeAuthProvider()
+    let client = ConvexMobile.ConvexClientWithAuth(
+      ffiClient: fakeFfiClient, authProvider: fakeAuthProvider)
+
+    // Initial login sets the auth callback
+    let result = await client.login()
+    XCTAssertEqual(try result.get(), FakeAuthProvider.CREDENTIALS)
+    let initialToken = try await fakeFfiClient.authProvider?.fetchToken(forceRefresh: false)
+    XCTAssertEqual(initialToken, "extracted: \(FakeAuthProvider.CREDENTIALS)")
+
+    // Set up expectation for the next setAuthCallback call
+    fakeFfiClient.setAuthCallbackExpectation = expectation
 
     // Simulate a token refresh by invoking the stored callback with a new token
     let refreshedToken = "refreshed_token_value"
@@ -389,8 +419,9 @@ final class ConvexMobileTests: XCTestCase {
 
     await fulfillment(of: [expectation], timeout: 10)
 
-    // Verify the new token was passed to the FFI client
-    XCTAssertEqual(fakeFfiClient.auth, refreshedToken)
+    // The provider's cached token should now be the refreshed token
+    let updatedToken = try await fakeFfiClient.authProvider?.fetchToken(forceRefresh: false)
+    XCTAssertEqual(updatedToken, refreshedToken)
   }
 
   func testTokenRefreshWithNilSetsAuthStateToUnauthenticated() async throws {
@@ -422,8 +453,8 @@ final class ConvexMobileTests: XCTestCase {
 
     await fulfillment(of: [expectation], timeout: 10)
 
-    // Verify the FFI client auth was cleared and state is unauthenticated
-    XCTAssertNil(fakeFfiClient.auth)
+    // Verify the auth callback provider was cleared and state is unauthenticated
+    XCTAssertNil(fakeFfiClient.authProvider)
   }
 }
 
@@ -433,8 +464,10 @@ class FakeMobileConvexClient: UniFFI.MobileConvexClientProtocol {
   var mutationCalls: [String] = []
   var actionCalls: [String] = []
   var auth: String? = nil
+  var authProvider: (any AuthTokenProvider)? = nil
   var resultPublished: XCTestExpectation?
   var setAuthExpectation: XCTestExpectation?
+  var setAuthCallbackExpectation: XCTestExpectation?
 
   init(initialAuth: String? = nil, resultPublished: XCTestExpectation? = nil) {
     self.auth = initialAuth
@@ -474,6 +507,11 @@ class FakeMobileConvexClient: UniFFI.MobileConvexClientProtocol {
     setAuthExpectation?.fulfill()
   }
 
+  func setAuthCallback(provider: (any AuthTokenProvider)?) async throws {
+    authProvider = provider
+    setAuthCallbackExpectation?.fulfill()
+  }
+
   func subscribe(name: String, args: [String: String], subscriber: any UniFFI.QuerySubscriber)
     async throws -> UniFFI.SubscriptionHandle
   {
@@ -510,8 +548,10 @@ class FakeAuthProvider: AuthProvider {
   static let CREDENTIALS = "credentials, yo"
 
   private var storedOnIdToken: (@Sendable (String?) -> Void)?
+  var loginFromCacheCallCount = 0
 
   func loginFromCache(onIdToken: @Sendable @escaping (String?) -> Void) async throws -> String {
+    loginFromCacheCallCount += 1
     storedOnIdToken = onIdToken
     onIdToken("extracted: \(FakeAuthProvider.CREDENTIALS)")
     return FakeAuthProvider.CREDENTIALS
