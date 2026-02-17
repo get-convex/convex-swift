@@ -183,14 +183,21 @@ public protocol AuthProvider<T> {
   ///   this callback and invoke it whenever a new token is available (e.g., on token refresh).
   ///   Call with `nil` if the session becomes invalid (e.g., token refresh fails).
   func login(onIdToken: @Sendable @escaping (String?) -> Void) async throws -> T
+
   /// Trigger a logout flow, which might launch a new UI/screen.
   func logout() async throws
+
   /// Trigger a cached, UI-less re-authentication using stored credentials from a previous ``login()``.
+  ///
+  /// For OAuth providers, this is a good place to check token validity and perform a refresh if necessary
+  /// before returning the auth data as``T``.
   ///
   /// - Parameter onIdToken: A callback to invoke with a fresh JWT ID token. The auth provider should store
   ///   this callback and invoke it whenever a new token is available (e.g., on token refresh).
   ///   Call with `nil` if the session becomes invalid (e.g., token refresh fails).
-  func loginFromCache(onIdToken: @Sendable @escaping (String?) -> Void) async throws -> T
+  func loginFromCache(onIdToken: @Sendable @escaping (String?) -> Void)
+    async throws -> T
+
   /// Extracts a [JWT ID token](https://openid.net/specs/openid-connect-core-1_0.html#IDToken)
   /// from the `authResult`.
   func extractIdToken(from authResult: T) -> String
@@ -202,15 +209,19 @@ public protocol AuthProvider<T> {
 /// Caches the latest pushed token so that the Rust client can pull it if needed.
 private actor AuthTokenProviderBridge: AuthTokenProvider {
   private var cachedToken: String?
-  private var getFreshToken: () async throws -> String?
+  private var getValidToken: () async throws -> String?
 
-  init(token: String?, getFreshToken: @escaping () async throws -> String?) {
+  init(token: String?, getValidToken: @escaping () async throws -> String?) {
     self.cachedToken = token
-    self.getFreshToken = getFreshToken
+    self.getValidToken = getValidToken
   }
 
   func fetchToken(forceRefresh: Bool) async throws -> String? {
-    if forceRefresh, let freshToken = try? await getFreshToken() {
+    // Note: it's actually not required to treat this as a "force refresh". The
+    // `getValidToken` function just needs to ensure that it's valid, which means
+    // it can be an existing token that was previously cached elsewhere by the
+    // `AuthProvider`.
+    if forceRefresh, let freshToken = try? await getValidToken() {
       cachedToken = freshToken
     }
     return cachedToken
@@ -295,7 +306,7 @@ public class ConvexClientWithAuth<T>: ConvexClient {
       let token = authProvider.extractIdToken(from: authData)
       let bridge = AuthTokenProviderBridge(
         token: token,
-        getFreshToken: {
+        getValidToken: {
           [authProvider, idTokenHandler] in
           let refreshData = try await authProvider.loginFromCache(
             onIdToken: idTokenHandler
