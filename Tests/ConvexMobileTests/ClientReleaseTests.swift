@@ -46,4 +46,30 @@ final class ClientReleaseTests: XCTestCase {
         + "token handler -> ffiClient retain cycle is back, and every discarded "
         + "real client will leak its Rust core + websocket")
   }
+
+  /// `close()` clears the callback stored in the (fake) Rust core without
+  /// touching the auth provider: the explicit teardown for clients being
+  /// replaced.
+  func testCloseClearsAuthCallbackAndReleasesClient() async throws {
+    var fake: FakeMobileConvexClient? = FakeMobileConvexClient()
+    weak var weakFake = fake
+    let provider = FakeAuthProvider()
+    var client: ConvexClientWithAuth<String>? = ConvexClientWithAuth(
+      ffiClient: fake!, authProvider: provider)
+
+    let result = await client!.login()
+    XCTAssertNotNil(try? result.get())
+    XCTAssertNotNil(fake!.authProvider)
+
+    await client!.close()
+    XCTAssertNil(fake!.authProvider, "close() must clear the stored auth callback")
+    XCTAssertEqual(
+      provider.logoutCallCount, 0,
+      "close() must not log the user out, it only tears down the client")
+
+    client = nil
+    fake = nil
+    try await Task.sleep(nanoseconds: 200_000_000)
+    XCTAssertNil(weakFake, "FFI client must deallocate after close() + release")
+  }
 }

@@ -152,9 +152,21 @@ public class ConvexClient {
   }
 
   typealias RemoteCall = (String, [String: String]) async throws -> String
-  
+
   public func watchWebSocketState() -> AnyPublisher<WebSocketState, Never> {
     return webSocketStateAdapter.newPublisher()
+  }
+
+  /// Explicitly tears down this client before it is discarded, so that
+  /// releasing the last Swift reference deterministically frees the underlying
+  /// Rust client, closing its websocket and shutting down its runtime.
+  ///
+  /// A plain ``ConvexClient`` holds no teardown-requiring state, so this is a
+  /// no-op; ``ConvexClientWithAuth`` overrides it to clear the auth callback
+  /// registered with the Rust core. Call it before dropping a client you are
+  /// replacing (e.g. a reconnect that recreates the client). The client must
+  /// not be used again after calling `close()`.
+  public func close() async {
   }
 }
 
@@ -322,6 +334,20 @@ public class ConvexClientWithAuth<T>: ConvexClient {
       dump(error)
       authPublisher.send(AuthState.unauthenticated)
       return Result.failure(error)
+    }
+  }
+
+  /// See ``ConvexClient/close()``. Clears the auth callback registered with
+  /// the Rust core (and the bridge held by this instance) WITHOUT logging the
+  /// user out, so that discarding the client actually frees it. Unlike
+  /// ``logout()`` this has no side effects on the ``AuthProvider``'s stored
+  /// credentials and does not change ``authState``.
+  override public func close() async {
+    authBridge = nil
+    do {
+      try await ffiClient.setAuthCallback(provider: nil)
+    } catch {
+      dump(error)
     }
   }
 
