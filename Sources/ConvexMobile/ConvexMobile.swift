@@ -152,9 +152,21 @@ public class ConvexClient {
   }
 
   typealias RemoteCall = (String, [String: String]) async throws -> String
-  
+
   public func watchWebSocketState() -> AnyPublisher<WebSocketState, Never> {
     return webSocketStateAdapter.newPublisher()
+  }
+
+  /// Explicitly tears down this client before it is discarded, so that
+  /// releasing the last Swift reference deterministically frees the underlying
+  /// Rust client, closing its websocket and shutting down its runtime.
+  ///
+  /// A plain ``ConvexClient`` holds no teardown-requiring state, so this is a
+  /// no-op; ``ConvexClientWithAuth`` overrides it to clear the auth callback
+  /// registered with the Rust core. Call it before dropping a client you are
+  /// replacing (e.g. a reconnect that recreates the client). The client must
+  /// not be used again after calling `close()`.
+  public func close() async {
   }
 }
 
@@ -325,13 +337,36 @@ public class ConvexClientWithAuth<T>: ConvexClient {
     }
   }
 
+  /// See ``ConvexClient/close()``. Clears the auth callback registered with
+  /// the Rust core (and the bridge held by this instance) WITHOUT logging the
+  /// user out, so that discarding the client actually frees it. Unlike
+  /// ``logout()`` this has no side effects on the ``AuthProvider``'s stored
+  /// credentials and does not change ``authState``.
+  override public func close() async {
+    authBridge = nil
+    do {
+      try await ffiClient.setAuthCallback(provider: nil)
+    } catch {
+      dump(error)
+    }
+  }
+
   /// Creates a sendable handler for token updates from the auth provider.
   ///
   /// This handler is passed to the auth provider during login and should be called
   /// whenever a fresh token is available or when the session becomes invalid.
+  ///
+  /// `ffiClient` MUST be captured weakly here: the handler is captured by the
+  /// ``AuthTokenProviderBridge``'s refresh closure, and the Rust client stores
+  /// that bridge when it is passed to `setAuthCallback`. A strong `ffiClient`
+  /// capture therefore forms a retain cycle across the FFI boundary
+  /// (Rust client -> bridge -> this handler -> `ffiClient` proxy -> Rust
+  /// client) that keeps a discarded client's Rust core (its tokio runtime and
+  /// its websocket) alive until process exit.
   private func onIdTokenHandler() -> @Sendable (String?) -> Void {
-    { [ffiClient, authPublisher, weak self] token in
+    { [weak ffiClient, authPublisher, weak self] token in
       Task {
+        guard let ffiClient else { return }
         do {
           if let token {
             await self?.authBridge?.updateToken(token)

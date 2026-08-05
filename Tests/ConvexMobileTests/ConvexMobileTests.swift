@@ -549,6 +549,7 @@ class FakeAuthProvider: AuthProvider {
 
   private var storedOnIdToken: (@Sendable (String?) -> Void)?
   var loginFromCacheCallCount = 0
+  var logoutCallCount = 0
 
   func loginFromCache(onIdToken: @Sendable @escaping (String?) -> Void) async throws -> String {
     loginFromCacheCallCount += 1
@@ -564,7 +565,7 @@ class FakeAuthProvider: AuthProvider {
   }
 
   func logout() async throws {
-
+    logoutCallCount += 1
   }
 
   func extractIdToken(from authResult: String) -> String {
