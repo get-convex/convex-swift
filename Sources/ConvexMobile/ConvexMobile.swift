@@ -329,9 +329,18 @@ public class ConvexClientWithAuth<T>: ConvexClient {
   ///
   /// This handler is passed to the auth provider during login and should be called
   /// whenever a fresh token is available or when the session becomes invalid.
+  ///
+  /// `ffiClient` MUST be captured weakly here: the handler is captured by the
+  /// ``AuthTokenProviderBridge``'s refresh closure, and the Rust client stores
+  /// that bridge when it is passed to `setAuthCallback`. A strong `ffiClient`
+  /// capture therefore forms a retain cycle across the FFI boundary
+  /// (Rust client -> bridge -> this handler -> `ffiClient` proxy -> Rust
+  /// client) that keeps a discarded client's Rust core (its tokio runtime and
+  /// its websocket) alive until process exit.
   private func onIdTokenHandler() -> @Sendable (String?) -> Void {
-    { [ffiClient, authPublisher, weak self] token in
+    { [weak ffiClient, authPublisher, weak self] token in
       Task {
+        guard let ffiClient else { return }
         do {
           if let token {
             await self?.authBridge?.updateToken(token)
