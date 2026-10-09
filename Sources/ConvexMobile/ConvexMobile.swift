@@ -232,14 +232,137 @@ private actor AuthTokenProviderBridge: AuthTokenProvider {
   }
 }
 
+/// Owns the auth state of a ``ConvexClientWithAuth``: the active ``AuthTokenProviderBridge``, the
+/// provider registered with the Rust client, and the published ``AuthState``.
+///
+/// Login, logout and token pushes from the ``AuthProvider`` can all happen concurrently. Operations are
+/// queued synchronously, in call order, and a single loop runs them one at a time (including the FFI
+/// call), so the current bridge, the provider registered with the Rust client and the published
+/// ``AuthState`` can't get out of sync.
+///
+/// `ffiClient` is passed to each operation rather than stored because ``ConvexClientWithAuth`` must
+/// create its session before `super.init` has created the client.
+///
+/// `@unchecked Sendable` because Combine's `CurrentValueSubject` and `AnyPublisher` aren't annotated as
+/// `Sendable`, though `send` and subscribing are thread-safe; the remaining stored property is `Sendable`.
+private final class AuthSession<T>: @unchecked Sendable {
+  /// Receives the current bridge and returns the bridge that is current afterwards.
+  private typealias Operation =
+    @Sendable (AuthTokenProviderBridge?) async -> AuthTokenProviderBridge?
+
+  private let operations: AsyncStream<Operation>.Continuation
+  private let authPublisher = CurrentValueSubject<AuthState<T>, Never>(AuthState.unauthenticated)
+
+  /// Publishes the current ``AuthState``.
+  let authState: AnyPublisher<AuthState<T>, Never>
+
+  init() {
+    let (stream, operations) = AsyncStream.makeStream(of: Operation.self)
+    self.operations = operations
+    self.authState = authPublisher.eraseToAnyPublisher()
+    // Captures only the stream, so the loop ends when this session is deinitialized.
+    Task {
+      var bridge: AuthTokenProviderBridge?
+      for await operation in stream {
+        bridge = await operation(bridge)
+      }
+    }
+  }
+
+  deinit {
+    operations.finish()
+  }
+
+  /// Queues publishing ``AuthState/loading`` at the start of a login attempt.
+  func beginLogin() {
+    operations.yield { [authPublisher] current in
+      authPublisher.send(.loading)
+      return current
+    }
+  }
+
+  /// Queues publishing ``AuthState/unauthenticated`` after a failed login attempt.
+  func loginFailed() {
+    operations.yield { [authPublisher] current in
+      authPublisher.send(.unauthenticated)
+      return current
+    }
+  }
+
+  /// Makes `bridge` the active auth provider and publishes ``AuthState/authenticated(_:)`` with
+  /// `authData` once the Rust client has it.
+  func install(
+    _ bridge: AuthTokenProviderBridge, authData: T, on ffiClient: MobileConvexClientProtocol
+  ) async throws {
+    try await perform { [authPublisher] _ in
+      try await ffiClient.setAuthCallback(provider: bridge)
+      authPublisher.send(.authenticated(authData))
+      return bridge
+    }
+  }
+
+  /// Clears the active auth provider, logging out the Rust client, and publishes
+  /// ``AuthState/unauthenticated``.
+  func clear(on ffiClient: MobileConvexClientProtocol) async throws {
+    try await perform { [authPublisher] _ in
+      try await ffiClient.setAuthCallback(provider: nil)
+      authPublisher.send(.unauthenticated)
+      return nil
+    }
+  }
+
+  /// Queues a token pushed by the ``AuthProvider`` and returns without waiting for it to be applied.
+  func pushToken(_ token: String?, on ffiClient: MobileConvexClientProtocol) {
+    operations.yield { [authPublisher] current in
+      do {
+        if let token {
+          guard let current else { return nil }
+          await current.updateToken(token)
+          try await ffiClient.setAuthCallback(provider: current)
+          return current
+        } else {
+          try await ffiClient.setAuthCallback(provider: nil)
+          authPublisher.send(.unauthenticated)
+          return nil
+        }
+      } catch {
+        dump(error)
+        authPublisher.send(.unauthenticated)
+        return current
+      }
+    }
+  }
+
+  /// Queues `body` and waits for it to run. If `body` throws, the current bridge is left unchanged,
+  /// matching the Rust client, which keeps its previous provider when `setAuthCallback` fails.
+  private func perform(
+    _ body: @escaping @Sendable (AuthTokenProviderBridge?) async throws -> AuthTokenProviderBridge?
+  ) async throws {
+    try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+      let result = operations.yield { current in
+        do {
+          let next = try await body(current)
+          continuation.resume()
+          return next
+        } catch {
+          continuation.resume(throwing: error)
+          return current
+        }
+      }
+      if case .terminated = result {
+        continuation.resume(throwing: CancellationError())
+      }
+    }
+  }
+}
+
 /// Like ``ConvexClient``, but supports integration with an authentication provider via ``AuthProvider``.
 ///
 /// The generic parameter `T` matches the type of data returned by the ``AuthProvider`` upon successful
 /// authentication.
 public class ConvexClientWithAuth<T>: ConvexClient {
-  private let authPublisher = CurrentValueSubject<AuthState<T>, Never>(AuthState.unauthenticated)
   private let authProvider: any AuthProvider<T>
-  private var authBridge: AuthTokenProviderBridge?
+  private let authSession = AuthSession<T>()
 
   /// A publisher that updates with the current ``AuthState`` of this client instance.
   public let authState: AnyPublisher<AuthState<T>, Never>
@@ -251,20 +374,20 @@ public class ConvexClientWithAuth<T>: ConvexClient {
   ///   - authProvider: An instance that will handle the actual authentication duties.
   public init(deploymentUrl: String, authProvider: any AuthProvider<T>) {
     self.authProvider = authProvider
-    self.authState = authPublisher.eraseToAnyPublisher()
+    self.authState = authSession.authState
     super.init(deploymentUrl: deploymentUrl)
   }
 
   init(ffiClient: MobileConvexClientProtocol, authProvider: any AuthProvider<T>) {
     self.authProvider = authProvider
-    self.authState = authPublisher.eraseToAnyPublisher()
+    self.authState = authSession.authState
     super.init(ffiClient: ffiClient)
   }
 
   /// Triggers a UI driven login flow and updates the ``authState``.
   ///
-  /// The ``authState`` is set to ``AuthState.loading`` immediately upon calling this method and
-  /// will change to either ``AuthState.authenticated`` or ``AuthState.unauthenticated``
+  /// The ``authState`` is set to ``AuthState.loading`` once any pending auth changes have been applied
+  /// and will change to either ``AuthState.authenticated`` or ``AuthState.unauthenticated``
   /// depending on the result.
   public func login() async -> Result<T, Error> {
     await login(strategy: authProvider.login)
@@ -277,8 +400,8 @@ public class ConvexClientWithAuth<T>: ConvexClient {
   /// ``authState`` willl be ``AuthState.unauthenticated``. If supported by the ``AuthProvider``,
   /// a call to ``login()`` should store another set of credentials upon successful authentication.
   ///
-  /// The ``authState`` is set to ``AuthState.loading`` immediately upon calling this method and
-  /// will change to either ``AuthState.authenticated`` or ``AuthState.unauthenticated``
+  /// The ``authState`` is set to ``AuthState.loading`` once any pending auth changes have been applied
+  /// and will change to either ``AuthState.authenticated`` or ``AuthState.unauthenticated``
   /// depending on the result.
   public func loginFromCache() async -> Result<T, Error> {
     await login(strategy: authProvider.loginFromCache)
@@ -290,16 +413,14 @@ public class ConvexClientWithAuth<T>: ConvexClient {
   public func logout() async {
     do {
       try await authProvider.logout()
-      authBridge = nil
-      try await ffiClient.setAuthCallback(provider: nil)
-      authPublisher.send(AuthState.unauthenticated)
+      try await authSession.clear(on: ffiClient)
     } catch {
       dump(error)
     }
   }
 
   private func login(strategy: LoginStrategy) async -> Result<T, Error> {
-    authPublisher.send(AuthState.loading)
+    authSession.beginLogin()
     do {
       let idTokenHandler = onIdTokenHandler()
       let authData = try await strategy(idTokenHandler)
@@ -314,13 +435,11 @@ public class ConvexClientWithAuth<T>: ConvexClient {
           return authProvider.extractIdToken(from: refreshData)
         }
       )
-      authBridge = bridge
-      try await ffiClient.setAuthCallback(provider: bridge)
-      authPublisher.send(AuthState.authenticated(authData))
+      try await authSession.install(bridge, authData: authData, on: ffiClient)
       return Result.success(authData)
     } catch {
       dump(error)
-      authPublisher.send(AuthState.unauthenticated)
+      authSession.loginFailed()
       return Result.failure(error)
     }
   }
@@ -330,24 +449,11 @@ public class ConvexClientWithAuth<T>: ConvexClient {
   /// This handler is passed to the auth provider during login and should be called
   /// whenever a fresh token is available or when the session becomes invalid.
   private func onIdTokenHandler() -> @Sendable (String?) -> Void {
-    { [ffiClient, authPublisher, weak self] token in
-      Task {
-        do {
-          if let token {
-            await self?.authBridge?.updateToken(token)
-            if let bridge = self?.authBridge {
-              try await ffiClient.setAuthCallback(provider: bridge)
-            }
-          } else {
-            self?.authBridge = nil
-            try await ffiClient.setAuthCallback(provider: nil)
-            authPublisher.send(AuthState.unauthenticated)
-          }
-        } catch {
-          dump(error)
-          authPublisher.send(AuthState.unauthenticated)
-        }
-      }
+    // `authSession` is captured weakly: the bridge holds this handler (via `getValidToken`) and is in
+    // turn held by the session's operation loop, so a strong capture would keep the session, its loop
+    // and the bridge alive forever.
+    { [ffiClient, weak authSession] token in
+      authSession?.pushToken(token, on: ffiClient)
     }
   }
 

@@ -456,6 +456,99 @@ final class ConvexMobileTests: XCTestCase {
     // Verify the auth callback provider was cleared and state is unauthenticated
     XCTAssertNil(fakeFfiClient.authProvider)
   }
+
+  func testPendingAuthChangesArePublishedBeforeLoading() async throws {
+    let fakeFfiClient = FakeMobileConvexClient()
+    let fakeAuthProvider = FakeAuthProvider()
+    let client = ConvexMobile.ConvexClientWithAuth(
+      ffiClient: fakeFfiClient, authProvider: fakeAuthProvider)
+
+    let statesLock = NSLock()
+    var states: [String] = []
+    let cancellable = client.authState.sink { state in
+      statesLock.withLock { states.append("\(state)") }
+    }
+
+    _ = await client.login()
+    // Invalidate the session and log in again right away. The invalidation is still queued when the
+    // second login starts, so its `.unauthenticated` must be published before that login's `.loading`.
+    fakeAuthProvider.simulateTokenRefresh(newToken: nil)
+    _ = await client.login()
+    cancellable.cancel()
+
+    let authenticated = "authenticated(\"\(FakeAuthProvider.CREDENTIALS)\")"
+    XCTAssertEqual(
+      statesLock.withLock { states },
+      ["unauthenticated", "loading", authenticated, "unauthenticated", "loading", authenticated])
+  }
+
+  func testTokenRefreshAfterLogoutDoesNotReinstallProvider() async throws {
+    let fakeFfiClient = FakeMobileConvexClient()
+    let fakeAuthProvider = FakeAuthProvider()
+    let client = ConvexMobile.ConvexClientWithAuth(
+      ffiClient: fakeFfiClient, authProvider: fakeAuthProvider)
+
+    _ = await client.login()
+    await client.logout()
+    XCTAssertNil(fakeFfiClient.authProvider)
+    let callsBeforePush = fakeFfiClient.authProviderHistory.count
+
+    // A late token push from the provider (e.g. an in-flight refresh) must not log back in. Auth
+    // changes are applied in call order, so the second logout only completes after the push has been
+    // handled; the only call after the first logout should be the second logout's.
+    fakeAuthProvider.simulateTokenRefresh(newToken: "late_token")
+    await client.logout()
+    let callsAfterPush = fakeFfiClient.authProviderHistory.dropFirst(callsBeforePush)
+    XCTAssertEqual(callsAfterPush.count, 1)
+    XCTAssertNil(callsAfterPush.first ?? nil)
+  }
+
+  /// Hammers login, cached login, token pushes and logout concurrently. Run with
+  /// `swift test --sanitize=thread` to detect unsynchronized access to the auth state.
+  func testConcurrentAuthChangesEndInConsistentState() async throws {
+    let fakeFfiClient = FakeMobileConvexClient()
+    let fakeAuthProvider = FakeAuthProvider()
+    let client = ConvexMobile.ConvexClientWithAuth(
+      ffiClient: fakeFfiClient, authProvider: fakeAuthProvider)
+
+    // Auth state is published from the same serialized operation that registers or clears the
+    // provider, so every published state must match what the Rust client has at that moment.
+    let mismatchLock = NSLock()
+    var mismatches: [String] = []
+    let cancellable = client.authState.sink { state in
+      let hasProvider = fakeFfiClient.authProvider != nil
+      switch state {
+      case .authenticated where !hasProvider:
+        mismatchLock.withLock { mismatches.append("authenticated without a provider") }
+      case .unauthenticated where hasProvider:
+        mismatchLock.withLock { mismatches.append("unauthenticated with a provider") }
+      default:
+        break
+      }
+    }
+
+    _ = await client.login()
+    await withTaskGroup(of: Void.self) { group in
+      for i in 0..<200 {
+        group.addTask {
+          switch i % 5 {
+          case 0: _ = await client.loginFromCache()
+          case 1: fakeAuthProvider.simulateTokenRefresh(newToken: "token-\(i)")
+          case 2: fakeAuthProvider.simulateTokenRefresh(newToken: nil)
+          case 3: _ = try? await fakeFfiClient.authProvider?.fetchToken(forceRefresh: true)
+          default: await client.logout()
+          }
+        }
+      }
+    }
+
+    // Every token push above was queued before its call returned, so this logout is applied after
+    // all of them and must win.
+    await client.logout()
+    cancellable.cancel()
+    XCTAssertNil(fakeFfiClient.authProvider)
+    XCTAssertEqual(mismatchLock.withLock { mismatches }, [])
+  }
 }
 
 class FakeMobileConvexClient: UniFFI.MobileConvexClientProtocol {
@@ -464,7 +557,16 @@ class FakeMobileConvexClient: UniFFI.MobileConvexClientProtocol {
   var mutationCalls: [String] = []
   var actionCalls: [String] = []
   var auth: String? = nil
-  var authProvider: (any AuthTokenProvider)? = nil
+  private let authProviderLock = NSLock()
+  private var _authProvider: (any AuthTokenProvider)? = nil
+  private var _authProviderHistory: [(any AuthTokenProvider)?] = []
+  var authProvider: (any AuthTokenProvider)? {
+    authProviderLock.withLock { _authProvider }
+  }
+  /// Every provider passed to `setAuthCallback`, in call order.
+  var authProviderHistory: [(any AuthTokenProvider)?] {
+    authProviderLock.withLock { _authProviderHistory }
+  }
   var resultPublished: XCTestExpectation?
   var setAuthExpectation: XCTestExpectation?
   var setAuthCallbackExpectation: XCTestExpectation?
@@ -508,7 +610,10 @@ class FakeMobileConvexClient: UniFFI.MobileConvexClientProtocol {
   }
 
   func setAuthCallback(provider: (any AuthTokenProvider)?) async throws {
-    authProvider = provider
+    authProviderLock.withLock {
+      _authProvider = provider
+      _authProviderHistory.append(provider)
+    }
     setAuthCallbackExpectation?.fulfill()
   }
 
@@ -547,18 +652,23 @@ class FakeMobileConvexClient: UniFFI.MobileConvexClientProtocol {
 class FakeAuthProvider: AuthProvider {
   static let CREDENTIALS = "credentials, yo"
 
+  // Guards the state below, since the stress test calls into this provider concurrently.
+  private let lock = NSLock()
   private var storedOnIdToken: (@Sendable (String?) -> Void)?
-  var loginFromCacheCallCount = 0
+  private var _loginFromCacheCallCount = 0
+  var loginFromCacheCallCount: Int { lock.withLock { _loginFromCacheCallCount } }
 
   func loginFromCache(onIdToken: @Sendable @escaping (String?) -> Void) async throws -> String {
-    loginFromCacheCallCount += 1
-    storedOnIdToken = onIdToken
+    lock.withLock {
+      _loginFromCacheCallCount += 1
+      storedOnIdToken = onIdToken
+    }
     onIdToken("extracted: \(FakeAuthProvider.CREDENTIALS)")
     return FakeAuthProvider.CREDENTIALS
   }
 
   func login(onIdToken: @Sendable @escaping (String?) -> Void) async throws -> String {
-    storedOnIdToken = onIdToken
+    lock.withLock { storedOnIdToken = onIdToken }
     onIdToken("extracted: \(FakeAuthProvider.CREDENTIALS)")
     return FakeAuthProvider.CREDENTIALS
   }
@@ -573,7 +683,7 @@ class FakeAuthProvider: AuthProvider {
 
   /// Simulates a token refresh by invoking the stored callback with a new token.
   func simulateTokenRefresh(newToken: String?) {
-    storedOnIdToken?(newToken)
+    lock.withLock { storedOnIdToken }?(newToken)
   }
 }
 
