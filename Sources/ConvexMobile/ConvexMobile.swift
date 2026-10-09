@@ -243,8 +243,8 @@ private actor AuthTokenProviderBridge: AuthTokenProvider {
 /// `ffiClient` is passed to each operation rather than stored because ``ConvexClientWithAuth`` must
 /// create its session before `super.init` has created the client.
 ///
-/// `@unchecked Sendable` because `CurrentValueSubject` isn't annotated as `Sendable`, though its `send`
-/// is thread-safe; all other stored properties are `Sendable`.
+/// `@unchecked Sendable` because Combine's `CurrentValueSubject` and `AnyPublisher` aren't annotated as
+/// `Sendable`, though `send` and subscribing are thread-safe; the remaining stored property is `Sendable`.
 private final class AuthSession<T>: @unchecked Sendable {
   /// Receives the current bridge and returns the bridge that is current afterwards.
   private typealias Operation =
